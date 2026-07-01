@@ -1,0 +1,15 @@
+appId: com.openclaw.manager
+productName: OpenClaw Manager
+directories:
+  output: release
+icon: build/icon.ico
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+  artifactName: ${productName}-Setup-${version}.${ext}
+extraResources:
+  - from: ./resources/
+    to: resources/
+    filter:
+      - "**/*"

@@ -1,0 +1,1 @@
+const cp = require("child_process"); const r = cp.execFileSync(process.execPath,["--version"],{encoding:"utf-8",stdio:["ignore","pipe","ignore"]}); console.log("execPath version:", r.trim()); console.log("execPath:", process.execPath);
