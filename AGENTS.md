@@ -60,7 +60,7 @@
 - 配置:`app.getPath("userData")/manager-config.json`(实例列表、版本列表、`nextPort`,从 `18789` 开始)。
 - 实例状态目录:`~/.openclaw-manager/instances/<name>/`,内含 `openclaw.json`(由 `instance-manager.initStateDir` 写入的 gateway/auth 配置)。
 - 已安装的 OpenClaw 版本:`~/.openclaw-manager/versions/<version>/`(每个目录都是独立的 `npm install` 树)。
-- 打包的 Node.js(仅生产):`resources/node/`,由 `npm run setup:node` 填充;`.gitignore` 已排除,勿手动提交。通过 `electron-builder.yml#extraResources` 包含;运行期由 `version-manager.resolveNodeBinary` 解析(优先 `PATH` → 常见安装路径 → 打包目录,全部失败则 `throw`)。
+- 打包的 Node.js(仅生产):`resources/node/`,由 `npm run setup:node` 填充;`.gitignore` 已排除,勿手动提交。通过 `electron-builder.yml#extraResources` 包含;运行期由 `version-manager.resolveNodeBinary` 解析(优先 `PATH` → 常见安装路径 → 打包目录,全部失败则 `throw`)。npm 同理,从 resolved `node` 所在目录派生 `npm.cmd` / `npm`(`resolveNpmBinary`),`installVersion` 用 `execFile` 调用 resolved 路径(Windows 加 `shell: true`),并把 bundled 目录 prepend 到 env.PATH 以让 OpenClaw 的 postinstall shebang 找到 bundled node。
 
 ## 需要知道的约定
 
