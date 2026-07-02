@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("api", {
     debugDisconnectGateway: (name: string) => ipcRenderer.invoke("instances:debug-disconnect-gateway", name),
     getLogs: (name: string) => ipcRenderer.invoke("instances:getLogs", name),
     openWebUI: (port: number, token: string) => ipcRenderer.invoke("instances:open-webui", port, token),
+    openTerminal: (instanceName: string) => ipcRenderer.invoke("instances:open-terminal", instanceName),
+    openFolder: (instanceName: string) => ipcRenderer.invoke("instances:open-folder", instanceName),
     onStatusChanged: (callback: (data: { name: string; status: string; message?: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { name: string; status: string; message?: string }) =>
         callback(data);

@@ -153,7 +153,14 @@ async function startGatewayClient(inst: ManagedInstance): Promise<void> {
   client.connect();
 }
 
+const INSTANCE_NAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5][a-zA-Z0-9_\-]*$/;
+
 export async function createInstance(name: string, version: string, port?: number): Promise<void> {
+  if (!INSTANCE_NAME_RE.test(name)) {
+    throw new Error(
+      `实例名 "${name}" 不合法：仅允许字母、数字、下划线、连字符，且不能以连字符开头`
+    );
+  }
   if (instances.has(name)) {
     throw new Error(`Instance "${name}" already exists`);
   }

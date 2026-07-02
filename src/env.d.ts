@@ -27,6 +27,8 @@ interface Window {
       debugDisconnectGateway: (name: string) => Promise<void>;
       getLogs: (name: string) => Promise<string[]>;
       openWebUI: (port: number, token: string) => Promise<void>;
+      openTerminal: (instanceName: string) => Promise<void>;
+      openFolder: (instanceName: string) => Promise<void>;
       onStatusChanged: (callback: (data: { name: string; status: InstanceStatus; message?: string }) => void) => () => void;
     debug: {
       spawn: (command: string, args?: string[]) => Promise<{ ok: boolean; output?: string; error?: string; stderr?: string; code?: number }>;

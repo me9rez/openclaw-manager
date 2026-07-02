@@ -46,6 +46,14 @@ function formatUptime(startedAt?: number): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}时${minutes % 60}分`;
 }
+
+async function openFolder() {
+  try {
+    await window.api.instances.openFolder(props.instance.name);
+  } catch (err) {
+    console.error("[open-folder] failed:", err);
+  }
+}
 </script>
 
 <template>
@@ -86,6 +94,7 @@ function formatUptime(startedAt?: number): string {
         <button class="btn btn-primary" @click="emit('start', instance.name)">启动</button>
         <button class="btn btn-danger" @click="emit('remove', instance.name)">删除</button>
       </template>
+      <button class="btn btn-ghost btn-icon" @click="openFolder" title="打开所在文件夹">打开</button>
     </div>
   </div>
 </template>
@@ -186,4 +195,9 @@ function formatUptime(startedAt?: number): string {
   color: var(--muted);
 }
 .btn-ghost:hover { border-color: var(--border-hover); color: var(--text); }
+.btn-icon {
+  margin-left: auto;
+  font-size: 14px;
+  padding: 4px 8px;
+}
 </style>

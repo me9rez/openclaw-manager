@@ -1,3 +1,7 @@
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { exec } from "child_process";
 import { ipcMain, BrowserWindow, shell } from "electron";
 import {
   listAvailableVersions,
@@ -18,7 +22,7 @@ import {
   onStatus,
   onLog,
 } from "./instance-manager";
-import { getInstances as storeGetInstances } from "./store";
+import { getInstances as storeGetInstances, getInstance, getInstanceDir, getVersionDir } from "./store";
 import * as configManager from "./config-manager";
 
 export function registerIpcHandlers(): void {
@@ -100,6 +104,33 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("instances:open-webui", async (_event, port: number, token: string) => {
     const url = `http://127.0.0.1:${port}/#token=${encodeURIComponent(token)}`;
     await shell.openExternal(url);
+  });
+
+  ipcMain.handle("instances:open-terminal", async (_event, instanceName: string) => {
+    const record = getInstance(instanceName);
+    if (!record) throw new Error(`Instance "${instanceName}" not found`);
+    const cwd = getInstanceDir(instanceName);
+    const binDir = path.join(getVersionDir(record.version), "node_modules", ".bin");
+    const psScript = path.join(os.tmpdir(), `openclaw-${instanceName}.ps1`);
+    const psCmd = [
+      `$env:PATH = "${binDir};$env:PATH"`,
+      `$env:OPENCLAW_CONFIG_PATH = "${path.join(cwd, "openclaw.json")}"`,
+      `$env:OPENCLAW_STATE_DIR = "${cwd}"`,
+      `$env:OPENCLAW_GATEWAY_TOKEN = "${record.token}"`,
+      `Set-Location '${cwd}'`,
+    ].join("; ");
+    fs.writeFileSync(psScript, psCmd, "utf-8");
+    exec(
+      `start "PowerShell" powershell.exe -NoExit -WindowStyle Normal -ExecutionPolicy Bypass -File "${psScript}"`,
+      (error) => { if (error) console.error(`[open-terminal] exec error:`, error); },
+    );
+  });
+
+  ipcMain.handle("instances:open-folder", async (_event, instanceName: string) => {
+    const record = getInstance(instanceName);
+    if (!record) throw new Error(`Instance "${instanceName}" not found`);
+    const dir = getInstanceDir(instanceName);
+    await shell.openPath(dir);
   });
 
   // Diagnostic: test spawning a process

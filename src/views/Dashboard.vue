@@ -11,8 +11,19 @@ const store = useInstancesStore();
 const showCreate = ref(false);
 const createName = ref("");
 const createVersion = ref("");
+const createError = ref("");
 const availableVersions = ref<string[]>([]);
 const creating = ref(false);
+
+const INSTANCE_NAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5][a-zA-Z0-9_\-]*$/;
+
+function validateInstanceName(name: string): string | null {
+  if (!name) return "实例名称不能为空";
+  if (!INSTANCE_NAME_RE.test(name)) {
+    return "仅允许字母、数字、下划线、连字符，且不能以连字符开头";
+  }
+  return null;
+}
 
 let cleanupStatus: (() => void) | null = null;
 
@@ -33,7 +44,13 @@ onUnmounted(() => {
 });
 
 async function handleCreate() {
-  if (!createName.value.trim() || !createVersion.value) return;
+  createError.value = "";
+  const err = validateInstanceName(createName.value.trim());
+  if (err) {
+    createError.value = err;
+    return;
+  }
+  if (!createVersion.value) return;
   creating.value = true;
   try {
     await store.create({
@@ -109,6 +126,7 @@ function statusCount(status: string): number {
           <div class="form-group">
             <label>实例名称</label>
             <input v-model="createName" type="text" placeholder="例如: test-v1" class="input" />
+            <p v-if="createError" class="form-error">{{ createError }}</p>
           </div>
           <div class="form-group">
             <label>版本</label>
@@ -296,6 +314,11 @@ select.input {
 .help-text {
   font-size: 12px;
   color: var(--muted);
+  margin-top: 4px;
+}
+.form-error {
+  font-size: 12px;
+  color: var(--danger);
   margin-top: 4px;
 }
 .modal-actions {

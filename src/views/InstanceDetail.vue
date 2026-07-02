@@ -32,6 +32,15 @@ function openWebUI(port: number, token: string) {
   window.api.instances.openWebUI(port, token);
 }
 
+async function openTerminal() {
+  if (!instance.value) return;
+  try {
+    await window.api.instances.openTerminal(instance.value.name);
+  } catch (err) {
+    console.error("[open-terminal] failed:", err);
+  }
+}
+
 function statusColor(status: string): string {
   switch (status) {
     case "running": return "var(--ok)";
@@ -101,6 +110,12 @@ const statusLabel: Record<string, string> = {
 
         <div class="actions-section">
           <button
+            class="btn btn-ghost"
+            @click="openTerminal"
+          >
+            打开终端
+          </button>
+          <button
             v-if="instance.status === 'running' || instance.status === 'reconnecting'"
             class="btn btn-accent"
             @click="openWebUI(instance.port, instance.token)"
@@ -164,6 +179,9 @@ const statusLabel: Record<string, string> = {
 
 <style scoped>
 .detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   max-width: 1200px;
   margin: 0 auto;
   animation: fade-in 0.25s ease-out;
@@ -208,7 +226,8 @@ const statusLabel: Record<string, string> = {
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 20px;
-  height: calc(100vh - 150px);
+  flex: 1;
+  min-height: 0;
 }
 .info-panel {
   background: var(--card);
@@ -303,7 +322,8 @@ const statusLabel: Record<string, string> = {
   color: #fff;
 }
 .log-panel {
-  height: 100%;
+  min-height: 0;
+  display: flex;
 }
 .not-found {
   text-align: center;
