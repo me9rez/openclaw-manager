@@ -391,7 +391,7 @@ export class GatewayClient {
     const connectId = `connect-${Date.now()}-${randomUUID()}`;
     const clientMode = "backend";
     const role = "operator";
-    const scopes: readonly string[] = ["operator.read"];
+    const scopes: readonly string[] = ["operator.admin"];
     const signedAtMs = Date.now();
 
     const device =

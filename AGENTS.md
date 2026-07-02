@@ -80,7 +80,7 @@
 - `connect.params.client.mode` 取值:
   - `ui` / `operator` / `node` 等:会触发**设备配对流程**(`device.pair.requested` 等),非 loopback 需人工审批;loopback 自动批准。
   - `backend` + `client.id: "gateway-client"` + 直连 loopback 是**保留内部 helper 路径**,可省略 `device` 块、不被配对,scope 也能保留。
-  - 我们 manager 用 `client.id: "gateway-client"` + `client.mode: "backend"` + `scopes: ["operator.read"]`,走 backend helper 路径,保留设备签名为后续升级铺路(`electron/device-identity.ts`)。
+  - 我们 manager 用 `client.id: "gateway-client"` + `client.mode: "backend"` + `scopes: ["operator.admin"]`,走 backend helper 路径,保留设备签名为后续升级铺路(`electron/device-identity.ts`)。
 - `connect.params` 常用字段:`minProtocol`/`maxProtocol`(当前必须 v4)、`role`、`scopes`、`caps`、`auth: { token }`、可选 `device`、`locale`、`userAgent`。
 - **服务端在 `hello-ok` 里通告**:`policy.tickIntervalMs`、`policy.maxPayload`、`policy.maxBufferedBytes`、`auth.role`/`auth.scopes`(可能含 `deviceToken`)。客户端必须采用 `tickIntervalMs` 覆盖默认心跳周期;超时阈值 = `tickIntervalMs × 2`,close code = `4000`。
 - `4000` 是 tick 超时(瞬时),**不应**判 fatal;其他 `4xxx` 才是协议级拒绝(不重连)。
