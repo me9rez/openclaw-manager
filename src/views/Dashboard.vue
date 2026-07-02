@@ -68,6 +68,10 @@ function statusCount(status: string): number {
             {{ statusCount("stopped") + statusCount("installed") }} 已停止
           </span>
           <span class="stat">
+            <span class="stat-dot" style="background: var(--warn)"></span>
+            {{ statusCount("reconnecting") }} 重新连接中
+          </span>
+          <span class="stat">
             <span class="stat-dot" style="background: var(--danger)"></span>
             {{ statusCount("error") + statusCount("crashed") }} 错误
           </span>

@@ -10,6 +10,8 @@ import {
   startInstance,
   stopInstance,
   removeInstance,
+  forceReconnectInstance,
+  stopReconnectInstance,
   getAllInstanceStatuses,
   getInstanceLogs,
   syncStoreToMemory,
@@ -75,6 +77,22 @@ export function registerIpcHandlers(): void {
     removeInstance(name);
   });
 
+  ipcMain.handle("instances:force-reconnect", async (_event, name: string) => {
+    forceReconnectInstance(name);
+  });
+
+  ipcMain.handle("instances:stop-reconnect", async (_event, name: string) => {
+    stopReconnectInstance(name);
+  });
+
+  // Diagnostic: simulate a WS drop without killing the gateway process,
+  // so the auto-reconnect path can be exercised from tests.
+  ipcMain.handle("instances:debug-disconnect-gateway", async (_event, name: string) => {
+    const inst = getAllInstanceStatuses().find((s) => s.name === name);
+    if (!inst) throw new Error(`Instance "${name}" not found`);
+    inst.gateway?.simulateDisconnect();
+  });
+
   ipcMain.handle("instances:getLogs", async (_event, name: string) => {
     return getInstanceLogs(name);
   });
@@ -85,15 +103,23 @@ export function registerIpcHandlers(): void {
   });
 
   // Diagnostic: test spawning a process
-  ipcMain.handle("debug:spawn", async (_event, command: string) => {
+  ipcMain.handle("debug:spawn", async (_event, command: string, args?: string[]) => {
     const { execFileSync } = await import("child_process");
+    const opts = {
+      encoding: "utf-8" as const,
+      timeout: 10000,
+      stdio: ["ignore", "pipe", "pipe"] as ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    };
     try {
-      const result = execFileSync("cmd.exe", ["/c", command], {
-        encoding: "utf-8",
-        timeout: 10000,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      });
+      let result: string;
+      if (args) {
+        result = execFileSync(command, args, opts);
+      } else if (process.platform === "win32") {
+        result = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], opts);
+      } else {
+        result = execFileSync("sh", ["-c", command], opts);
+      }
       return { ok: true, output: result };
     } catch (err: unknown) {
       const e = err as { message?: string; stderr?: string; status?: number };

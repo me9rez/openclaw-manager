@@ -16,9 +16,18 @@ import {
 import { getOpenClawEntry, resolveNodeBinary, installVersion } from "./version-manager";
 import { GatewayClient } from "./gateway-client";
 import { findAvailablePort, isPortAvailable } from "./port-utils";
+import { loadOrCreateDeviceIdentity } from "./device-identity";
 import { EventEmitter } from "events";
 
-type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "error" | "crashed";
+type InstanceStatus =
+  | "installed"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "reconnecting"
+  | "error"
+  | "crashed";
 
 interface ManagedInstance {
   name: string;
@@ -34,6 +43,8 @@ interface ManagedInstance {
   restartTimer: NodeJS.Timeout | null;
   restartWindowStart: number;
   startedAt?: number;
+  reconnectAttempts: number;
+  lastReconnectError?: string;
   health?: { version?: string; uptime?: number };
 }
 
@@ -89,31 +100,51 @@ function initStateDir(instanceDir: string, token: string): void {
 }
 
 async function startGatewayClient(inst: ManagedInstance): Promise<void> {
+  const identity = await loadOrCreateDeviceIdentity(getInstanceDir(inst.name));
   const client = new GatewayClient(
-    `ws://127.0.0.1:${inst.port}`,
+    `ws://127.0.0.1:${inst.port}/ws`,
     inst.token,
+    identity,
     {
       onConnected: () => {
         inst.status = "running";
         inst.statusMessage = undefined;
+        inst.reconnectAttempts = 0;
+        inst.lastReconnectError = undefined;
+        inst.startedAt = inst.startedAt ?? Date.now();
         emitStatus(inst.name, "running");
       },
       onHealth: (health) => {
         inst.health = health as { version?: string; uptime?: number };
       },
-      onDisconnected: () => {
-        if (inst.status === "running" || inst.status === "starting") {
-          inst.status = "error";
-          inst.statusMessage = "Gateway connection lost";
-          emitStatus(inst.name, "error", "Gateway connection lost");
-        }
+      onReconnecting: (attempt, _delay, lastError) => {
+        if (inst.status === "stopping") return;
+        inst.status = "reconnecting";
+        inst.reconnectAttempts = attempt;
+        if (lastError) inst.lastReconnectError = lastError;
+        const tail = lastError ? ` (上次错误: ${lastError})` : "";
+        inst.statusMessage = `重新连接中 (第 ${attempt}/10 次)${tail}`;
+        emitStatus(inst.name, "reconnecting", inst.statusMessage);
+      },
+      onMaxAttemptsReached: (attempts) => {
+        inst.status = "crashed";
+        inst.reconnectAttempts = attempts;
+        inst.statusMessage = `重连 ${attempts} 次均失败`;
+        emitStatus(inst.name, "crashed", inst.statusMessage);
       },
       onError: (err) => {
-        if (inst.status === "starting") {
+        // Fatal (4xxx) errors land here after GatewayClient gives up.
+        // Don't override reconnecting/crashed states set by onReconnecting/onMaxAttemptsReached.
+        if (inst.status === "starting" || inst.status === "installed") {
           inst.status = "error";
           inst.statusMessage = err.message;
           emitStatus(inst.name, "error", err.message);
+        } else if (inst.status === "running") {
+          // running 时收到 error 一般是 ws on('error') 噪音,真正处理在 on('close')
         }
+      },
+      onDisconnected: () => {
+        // close 事件已被 GatewayClient 内部用 onReconnecting 处理,这里不再翻 error
       },
     },
   );
@@ -164,6 +195,7 @@ export async function createInstance(name: string, version: string, port?: numbe
     restartCount: 0,
     restartTimer: null,
     restartWindowStart: Date.now(),
+    reconnectAttempts: 0,
   };
 
   instances.set(name, inst);
@@ -189,6 +221,7 @@ export async function startInstance(name: string): Promise<void> {
       restartCount: 0,
       restartTimer: null,
       restartWindowStart: Date.now(),
+      reconnectAttempts: 0,
     };
     instances.set(name, newInst);
     return startInstance(name);
@@ -306,7 +339,7 @@ export async function startInstance(name: string): Promise<void> {
       return;
     }
 
-    if (inst.status === "starting" || inst.status === "running") {
+    if (inst.status === "starting" || inst.status === "running" || inst.status === "reconnecting") {
       emitLog(name, `[manager] process exited code=${code} signal=${signal}`);
       try { fs.writeFileSync(path.join(getInstanceDir(name), "exit-diag.json"), JSON.stringify({ code, signal, status: inst.status }, null, 2), "utf-8"); } catch {}
       const now = Date.now();
@@ -331,17 +364,13 @@ export async function startInstance(name: string): Promise<void> {
   });
 
   child.on("error", (err) => {
+    if (inst.status === "stopping") return;
     inst.status = "error";
     inst.statusMessage = err.message;
     emitStatus(name, "error", err.message);
   });
 
-  setTimeout(() => {
-    if (inst.status === "starting") {
-      startGatewayClient(inst);
-      inst.startedAt = Date.now();
-    }
-  }, 8_000);
+  void startGatewayClient(inst);
 }
 
 export async function stopInstance(name: string): Promise<void> {
@@ -403,6 +432,37 @@ export function removeInstance(name: string): void {
   storeRemoveInstance(name);
 }
 
+export function forceReconnectInstance(name: string): void {
+  const inst = instances.get(name);
+  if (!inst) throw new Error(`Instance "${name}" not found`);
+  if (inst.status === "starting" || inst.status === "stopping" || inst.status === "installed") {
+    throw new Error(`Instance "${name}" is in state "${inst.status}" and cannot be force-reconnected`);
+  }
+  inst.reconnectAttempts = 0;
+  inst.lastReconnectError = undefined;
+  if (inst.process) {
+    inst.gateway?.forceReconnect();
+    inst.status = "reconnecting";
+    inst.statusMessage = "手动重新连接中...";
+    emitStatus(name, "reconnecting", inst.statusMessage);
+  } else {
+    throw new Error(`Instance "${name}" has no running process; please start it first`);
+  }
+}
+
+export function stopReconnectInstance(name: string): void {
+  const inst = instances.get(name);
+  if (!inst) throw new Error(`Instance "${name}" not found`);
+  if (inst.status !== "reconnecting") {
+    throw new Error(`Instance "${name}" is not reconnecting (state: ${inst.status})`);
+  }
+  inst.gateway?.disconnect();
+  inst.gateway = null;
+  inst.status = "error";
+  inst.statusMessage = "已停止重连";
+  emitStatus(name, "error", inst.statusMessage);
+}
+
 export function getInstanceStatus(name: string): ManagedInstance | undefined {
   return instances.get(name);
 }
@@ -460,6 +520,7 @@ export function syncStoreToMemory(): void {
         restartCount: 0,
         restartTimer: null,
         restartWindowStart: Date.now(),
+        reconnectAttempts: 0,
       });
     }
   }

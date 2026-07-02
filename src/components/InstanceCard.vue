@@ -20,7 +20,8 @@ function statusColor(status: string): string {
     case "error": return "var(--danger)";
     case "crashed": return "var(--danger)";
     case "starting":
-    case "stopping": return "var(--warn)";
+    case "stopping":
+    case "reconnecting": return "var(--warn)";
     default: return "var(--muted)";
   }
 }
@@ -31,6 +32,7 @@ const statusLabel: Record<string, string> = {
   running: "运行中",
   stopping: "停止中...",
   stopped: "已停止",
+  reconnecting: "重新连接中",
   error: "错误",
   crashed: "崩溃",
 };
@@ -143,6 +145,9 @@ function formatUptime(startedAt?: number): string {
   font-size: 12px;
   color: var(--accent);
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-actions {
   display: flex;

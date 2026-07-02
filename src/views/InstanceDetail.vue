@@ -39,7 +39,8 @@ function statusColor(status: string): string {
     case "error": return "var(--danger)";
     case "crashed": return "var(--danger)";
     case "starting":
-    case "stopping": return "var(--warn)";
+    case "stopping":
+    case "reconnecting": return "var(--warn)";
     default: return "var(--muted)";
   }
 }
@@ -50,6 +51,7 @@ const statusLabel: Record<string, string> = {
   running: "运行中",
   stopping: "停止中...",
   stopped: "已停止",
+  reconnecting: "重新连接中",
   error: "错误",
   crashed: "崩溃",
 };
@@ -91,36 +93,50 @@ const statusLabel: Record<string, string> = {
             <span class="label">启动时间</span>
             <span class="value">{{ new Date(instance.startedAt).toLocaleString("zh-CN") }}</span>
           </div>
-          <div v-if="instance.statusMessage" class="info-row">
+          <div v-if="instance.statusMessage" class="status-msg-box">
             <span class="label">消息</span>
-            <span class="value error-text">{{ instance.statusMessage }}</span>
+            <span class="error-text">{{ instance.statusMessage }}</span>
           </div>
         </div>
 
         <div class="actions-section">
           <button
-            v-if="instance.status === 'running'"
+            v-if="instance.status === 'running' || instance.status === 'reconnecting'"
             class="btn btn-accent"
             @click="openWebUI(instance.port, instance.token)"
           >
             打开 WebUI
           </button>
           <button
-            v-if="instance.status === 'running'"
+            v-if="instance.status === 'running' || instance.status === 'reconnecting'"
             class="btn btn-warning"
             @click="store.stop(instance.name)"
           >
             停止
           </button>
           <button
-            v-if="instance.status === 'running'"
+            v-if="instance.status === 'running' || instance.status === 'reconnecting'"
             class="btn btn-ghost"
             @click="store.restart(instance.name)"
           >
             重启
           </button>
           <button
-            v-if="instance.status === 'stopped' || instance.status === 'crashed'"
+            v-if="instance.status === 'reconnecting'"
+            class="btn btn-warning"
+            @click="store.stopReconnect(instance.name)"
+          >
+            停止重连
+          </button>
+          <button
+            v-if="instance.status === 'crashed' || instance.status === 'error'"
+            class="btn btn-primary"
+            @click="store.forceReconnect(instance.name)"
+          >
+            重新连接
+          </button>
+          <button
+            v-if="instance.status === 'stopped' || instance.status === 'crashed' || instance.status === 'error'"
             class="btn btn-primary"
             @click="store.start(instance.name)"
           >
@@ -232,6 +248,13 @@ const statusLabel: Record<string, string> = {
 }
 .error-text {
   color: var(--accent);
+}
+.status-msg-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  word-break: break-all;
 }
 .actions-section {
   display: flex;

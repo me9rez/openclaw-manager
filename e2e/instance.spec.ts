@@ -4,6 +4,10 @@ import os from "os";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
+// Page.evaluate runs in Electron renderer where window.api exists via preload.
+// The local `window` (Playwright Page) shadows the global Window, so we cast
+// to `any` when accessing the preload-injected `api`.
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_PATH = path.join(__dirname, "..", "dist-electron", "main.js");
@@ -16,6 +20,13 @@ function electronExecutable(): string {
 }
 
 const testInstanceName = "e2e-test-611";
+
+interface InstanceInfo {
+  name: string;
+  status: string;
+  statusMessage?: string;
+  port: number;
+}
 
 test.describe("Instance lifecycle", () => {
   test.beforeAll(() => {
@@ -32,25 +43,23 @@ test.describe("Instance lifecycle", () => {
     await window.waitForLoadState("domcontentloaded");
 
     // Install version
-    const installed = await window.evaluate(() => window.api.versions.listInstalled());
+    const installed = await window.evaluate(() => (window as any).api.versions.listInstalled());
     if (installed.length === 0) {
-      await window.evaluate(() => window.api.versions.install("v2026.6.11"));
+      await window.evaluate(() => (window as any).api.versions.install("v2026.6.11"));
     }
-    const versions = await window.evaluate(() => window.api.versions.listInstalled());
+    const versions = await window.evaluate(() => (window as any).api.versions.listInstalled());
     expect(versions.length).toBeGreaterThan(0);
     console.log("Version:", versions[0]);
 
     // Debug: Test spawning node --version from main process
     const nodeVersionCheck = await window.evaluate(() =>
-      window.api.instances.debug.spawn("node --version"),
+      (window as any).api.instances.debug.spawn("node --version"),
     );
-    console.log("node --version via cmd /c:", JSON.stringify(nodeVersionCheck));
+    console.log("node --version:", JSON.stringify(nodeVersionCheck));
 
-    // Debug: Test spawning the bundled node directly
+    // Debug: Test the bundled node dir exists
     const bundledNodeCheck = await window.evaluate(() =>
-      window.api.instances.debug.spawn(
-        'dir "C:\\project\\resources\\node" /B',
-      ),
+      (window as any).api.instances.debug.spawn("Test-Path C:\\project\\resources\\node"),
     );
     console.log("Bundled node dir:", JSON.stringify(bundledNodeCheck));
 
@@ -58,53 +67,53 @@ test.describe("Instance lifecycle", () => {
     const homedir = os.homedir();
     const entry = path.join(homedir, ".openclaw-manager", "versions", "v2026.6.11", "node_modules", "openclaw", "openclaw.mjs");
     const openclawHelp = await window.evaluate(
-      (entryPath: string) => window.api.instances.debug.spawn(`node "${entryPath}" --help`),
+      (entryPath: string) => (window as any).api.instances.debug.spawn("node", [entryPath, "--help"]),
       entry,
     );
     console.log("openclaw --help:", JSON.stringify(openclawHelp));
 
     // Clean & create instance
-    try { await window.evaluate((n) => window.api.instances.remove(n), testInstanceName); } catch {}
+    try { await window.evaluate((n) => (window as any).api.instances.remove(n), testInstanceName); } catch {}
     await window.evaluate(
-      ({ name, version }) => window.api.instances.create({ name, version }),
+      ({ name, version }: { name: string; version: string }) => (window as any).api.instances.create({ name, version }),
       { name: testInstanceName, version: versions[0] },
     );
 
-    const list = await window.evaluate(() => window.api.instances.list());
+    const list = await window.evaluate(() => (window as any).api.instances.list()) as InstanceInfo[];
     const inst = list.find((i) => i.name === testInstanceName);
     expect(inst).toBeTruthy();
     console.log("Port:", inst!.port);
 
     // Start instance and monitor
-    await window.evaluate((n) => window.api.instances.start(n), testInstanceName);
+    await window.evaluate((n) => (window as any).api.instances.start(n), testInstanceName);
 
     let status = "";
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 2000));
-      const current = (await window.evaluate(() => window.api.instances.list())).find(
+      const current = (await window.evaluate(() => (window as any).api.instances.list()) as InstanceInfo[]).find(
         (i) => i.name === testInstanceName,
       );
       status = current?.status || "";
       const msg = current?.statusMessage || "";
-      const logs = await window.evaluate((n) => window.api.instances.getLogs(n), testInstanceName);
+      const logs = await window.evaluate((n) => (window as any).api.instances.getLogs(n), testInstanceName);
       console.log(`[${i * 2}s] status=${status} msg="${msg}" logs=${logs.length}`);
       if (logs.length > 0) console.log("  LOGS:", logs.slice(-3).join(" | "));
       if (["running", "error", "crashed"].includes(status)) break;
     }
 
-    const finalLogs = await window.evaluate((n) => window.api.instances.getLogs(n), testInstanceName);
+    const finalLogs = await window.evaluate((n) => (window as any).api.instances.getLogs(n), testInstanceName);
     console.log("=== ALL LOGS ===");
     console.log(finalLogs.join("\n"));
 
     expect(status).toBe("running");
 
-    await window.evaluate((n) => window.api.instances.stop(n), testInstanceName);
+    await window.evaluate((n) => (window as any).api.instances.stop(n), testInstanceName);
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      const c = (await window.evaluate(() => window.api.instances.list())).find((i) => i.name === testInstanceName);
+      const c = (await window.evaluate(() => (window as any).api.instances.list()) as InstanceInfo[]).find((i) => i.name === testInstanceName);
       if (c?.status === "stopped") break;
     }
-    await window.evaluate((n) => window.api.instances.remove(n), testInstanceName);
+    await window.evaluate((n) => (window as any).api.instances.remove(n), testInstanceName);
     await electronApp.close();
   });
 });

@@ -6,6 +6,7 @@ icon: build/icon.ico
 win:
   icon: build/icon.ico
   target:
+    - nsis
     - 7z
   artifactName: ${productName}-Setup-${version}.${ext}
 extraResources:
@@ -13,3 +14,7 @@ extraResources:
     to: resources/
     filter:
       - "**/*"
+  - from: ./build/
+    to: resources/
+    filter:
+      - "icon.ico"

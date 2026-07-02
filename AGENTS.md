@@ -45,8 +45,9 @@
   3. 每 2 秒轮询一次,最多 **40 秒**(20 轮),等待 `running` / `error` / `crashed`。
   4. 依赖 `PATH` 上可用的 `node`(或打包的 `resources/node/`),OpenClaw 才能启动。
   5. 不会清理 `~/.openclaw-manager/instances/e2e-test-611` 目录 —— `test.beforeAll` 只在该目录已存在时移除。
+- `e2e/gateway-reconnect.spec.ts` 验证 WebSocket 断线后的自动重连与手动按钮,使用 `instances:debug-disconnect-gateway` IPC 模拟 WS 掉线(进程仍存活)。
 - Playwright 配置:`workers: 1`、`retries: 0`、`headless: true`,每个用例 60 秒。不起本地 HTTP 服务,直接由 Playwright 驱动 Electron。
-- `electron/ipc-handlers.ts` 暴露了 `debug:spawn` 处理器(`cmd.exe /c <command>`),供 `instance.spec.ts` 探测环境。若要移除,需同步重写该 spec。
+- `electron/ipc-handlers.ts` 暴露了 `debug:spawn` 处理器(PowerShell 优先 / `execFile` 双模式),供 `instance.spec.ts` 探测环境。若要移除,需同步重写该 spec。
 
 ## 一次干净的 E2E 运行顺序
 
@@ -71,6 +72,21 @@
 - `instance-manager.ts` 使用 `EventEmitter`(`onStatus`、`onLog`);主进程在 `setupEventForwarders` 中订阅一次,再推送给渲染层。渲染层用法:`const off = window.api.instances.onStatusChanged(...)`,在 `onUnmounted` 中调用 `off()`。
 - 版本在 store 中带前导 `v`(如 `v2026.6.11`);`version-manager` 在调用 `npm install` 前会去掉 `v`。
 - 没有配置格式化或 lint 工具 —— 沿用文件已有风格(4 空格缩进,TS 用单引号,`vite.config.ts` 用双引号,使用 `noEmit` 友好的 type-only import)。
+
+## OpenClaw Gateway 协议要点(`https://docs.openclaw.ai/gateway/protocol`)
+
+- **握手必须**先收 `connect.challenge` event,再发 `connect` 请求;pre-connect 帧上限 64 KiB。
+- `connect.params.client.id` 取值受白名单约束(**不允许** `"openclaw-manager"` 等自定义值),允许集至少包括 `cli` / `gateway-client` / `ios-node` 等。`gateway-client` 是 backend RPC 保留 ID。
+- `connect.params.client.mode` 取值:
+  - `ui` / `operator` / `node` 等:会触发**设备配对流程**(`device.pair.requested` 等),非 loopback 需人工审批;loopback 自动批准。
+  - `backend` + `client.id: "gateway-client"` + 直连 loopback 是**保留内部 helper 路径**,可省略 `device` 块、不被配对,scope 也能保留。
+  - 我们 manager 用 `client.id: "gateway-client"` + `client.mode: "backend"` + `scopes: ["operator.read"]`,走 backend helper 路径,保留设备签名为后续升级铺路(`electron/device-identity.ts`)。
+- `connect.params` 常用字段:`minProtocol`/`maxProtocol`(当前必须 v4)、`role`、`scopes`、`caps`、`auth: { token }`、可选 `device`、`locale`、`userAgent`。
+- **服务端在 `hello-ok` 里通告**:`policy.tickIntervalMs`、`policy.maxPayload`、`policy.maxBufferedBytes`、`auth.role`/`auth.scopes`(可能含 `deviceToken`)。客户端必须采用 `tickIntervalMs` 覆盖默认心跳周期;超时阈值 = `tickIntervalMs × 2`,close code = `4000`。
+- `4000` 是 tick 超时(瞬时),**不应**判 fatal;其他 `4xxx` 才是协议级拒绝(不重连)。
+- 设备签名 payload 格式 v2:`"v2|<deviceId>|<clientId>|<clientMode>|<role>|<scopes>|<signedAtMs>|<token>|<nonce>"`,`nonce` 必须等于 `connect.challenge.payload.nonce`。详细见 `electron/device-identity.ts#buildDeviceAuthPayload`。
+- 同步触发的事件类型:`connect.challenge`、`tick`、`heartbeat`、`payload.large`(超限警告)、`shutdown`、`presence` 等;`tick` 与 `pong` 都视作 liveness 信号,任一收到即重置 `lastLivenessAt`。
+- 错误细节:握手失败可在 `error.details.code` / `error.details.recommendedNextStep` 拿到恢复建议(如 `retry_with_device_token` / `wait_then_retry`)。
 
 ## 改动某功能时优先阅读的文件
 
