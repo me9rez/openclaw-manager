@@ -77,4 +77,9 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("tray:navigate-instance", handler);
     },
   },
+  settings: {
+    get: () => ipcRenderer.invoke("settings:get"),
+    set: (patch: { autoStart?: boolean; autoStartInstances?: boolean; autoStartInstanceList?: string[] }) =>
+      ipcRenderer.invoke("settings:set", patch),
+  },
 });

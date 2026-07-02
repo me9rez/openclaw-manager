@@ -17,3 +17,4 @@ extraResources:
     to: resources/
     filter:
       - "icon.ico"
+      - "icon-tray.png"

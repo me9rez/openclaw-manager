@@ -4,8 +4,9 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { registerIpcHandlers, setupEventForwarders, initInstances } from "./ipc-handlers";
 import { createTray, destroyTray, setTrayIconPath } from "./tray";
-import { stopAllInstances } from "./instance-manager";
+import { stopAllInstances, startInstance } from "./instance-manager";
 import { getIsQuitting, setIsQuitting } from "./app-state";
+import { getSettings } from "./store";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,13 @@ if (!gotLock) {
 function iconPath(): string {
   const dev = path.join(__dirname, "..", "build", "icon.ico");
   const prod = path.join(process.resourcesPath, "icon.ico");
+  if (fs.existsSync(dev)) return dev;
+  return prod;
+}
+
+function trayIconPath(): string {
+  const dev = path.join(__dirname, "..", "build", "icon-tray.png");
+  const prod = path.join(process.resourcesPath, "icon-tray.png");
   if (fs.existsSync(dev)) return dev;
   return prod;
 }
@@ -77,7 +85,18 @@ if (gotLock) {
   app.whenReady().then(() => {
     registerIpcHandlers();
     initInstances();
-    setTrayIconPath(iconPath());
+
+    const settings = getSettings();
+    if (settings.autoStart && app.isPackaged) {
+      app.setLoginItemSettings({ openAtLogin: true });
+    }
+    if (settings.autoStartInstances) {
+      for (const name of settings.autoStartInstanceList) {
+        startInstance(name).catch((err) => console.warn(`[auto-start] ${name}:`, err));
+      }
+    }
+
+    setTrayIconPath(trayIconPath());
     createWindow();
     if (mainWindow) tryCreateTray(mainWindow);
 

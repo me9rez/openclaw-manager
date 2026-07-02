@@ -4,8 +4,9 @@ import Dashboard from "./views/Dashboard.vue";
 import InstanceDetail from "./views/InstanceDetail.vue";
 import VersionManager from "./views/VersionManager.vue";
 import ConfigManager from "./views/ConfigManager.vue";
+import SettingsManager from "./views/SettingsManager.vue";
 
-type Tab = "dashboard" | "versions" | "config" | "detail";
+type Tab = "dashboard" | "versions" | "config" | "detail" | "settings";
 
 const currentTab = ref<Tab>("dashboard");
 const detailName = ref("");
@@ -27,6 +28,10 @@ function navigateToVersions() {
 
 function navigateToConfig() {
   currentTab.value = "config";
+}
+
+function navigateToSettings() {
+  currentTab.value = "settings";
 }
 
 onMounted(() => {
@@ -64,6 +69,12 @@ onUnmounted(() => {
         >
           配置管理
         </button>
+        <button
+          :class="['nav-link', { active: currentTab === 'settings' }]"
+          @click="navigateToSettings"
+        >
+          设置
+        </button>
       </div>
     </nav>
     <main class="main">
@@ -75,6 +86,7 @@ onUnmounted(() => {
       />
       <VersionManager v-else-if="currentTab === 'versions'" />
       <ConfigManager v-else-if="currentTab === 'config'" />
+      <SettingsManager v-else-if="currentTab === 'settings'" />
     </main>
   </div>
 </template>

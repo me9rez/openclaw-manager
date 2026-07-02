@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { exec } from "child_process";
-import { ipcMain, BrowserWindow, shell } from "electron";
+import { ipcMain, BrowserWindow, shell, app } from "electron";
 import {
   listAvailableVersions,
   installVersion,
@@ -22,7 +22,7 @@ import {
   onStatus,
   onLog,
 } from "./instance-manager";
-import { getInstances as storeGetInstances, getInstance, getInstanceDir, getVersionDir } from "./store";
+import { getInstances as storeGetInstances, getInstance, getInstanceDir, getVersionDir, getSettings, updateSettings } from "./store";
 import * as configManager from "./config-manager";
 
 export function registerIpcHandlers(): void {
@@ -79,6 +79,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("instances:remove", async (_event, name: string) => {
     removeInstance(name);
+    const s = getSettings();
+    if (s.autoStartInstanceList.includes(name)) {
+      updateSettings({ autoStartInstanceList: s.autoStartInstanceList.filter((n) => n !== name) });
+    }
   });
 
   ipcMain.handle("instances:force-reconnect", async (_event, name: string) => {
@@ -203,6 +207,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("config:getBackupRetention", () => configManager.getBackupRetentionSetting());
   ipcMain.handle("config:setBackupRetention", (_event, count: number | null) => {
     configManager.setBackupRetentionSetting(count);
+  });
+
+  // Settings
+  ipcMain.handle("settings:get", () => {
+    return getSettings();
+  });
+
+  ipcMain.handle("settings:set", (_event, patch: { autoStart?: boolean; autoStartInstances?: boolean; autoStartInstanceList?: string[] }) => {
+    if (patch.autoStart !== undefined && app.isPackaged) {
+      app.setLoginItemSettings({ openAtLogin: patch.autoStart });
+    }
+    updateSettings(patch);
   });
 }
 

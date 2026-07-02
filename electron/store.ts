@@ -26,6 +26,9 @@ interface StoreData {
   managerDir: string;
   configTemplates: ConfigTemplate[];
   backupRetention: number | null;
+  autoStart: boolean;
+  autoStartInstances: boolean;
+  autoStartInstanceList: string[];
 }
 
 const storePath = path.join(app.getPath("userData"), "manager-config.json");
@@ -46,6 +49,9 @@ function read(): StoreData {
         managerDir: parsed.managerDir ?? path.join(app.getPath("home"), ".openclaw-manager"),
         configTemplates: parsed.configTemplates ?? [],
         backupRetention: parsed.backupRetention ?? 20,
+        autoStart: parsed.autoStart ?? false,
+        autoStartInstances: parsed.autoStartInstances ?? false,
+        autoStartInstanceList: parsed.autoStartInstanceList ?? [],
       };
     }
   } catch {
@@ -58,6 +64,9 @@ function read(): StoreData {
     managerDir: path.join(app.getPath("home"), ".openclaw-manager"),
     configTemplates: [],
     backupRetention: 20,
+    autoStart: false,
+    autoStartInstances: false,
+    autoStartInstanceList: [],
   };
 }
 
@@ -182,5 +191,22 @@ export function getBackupRetention(): number | null {
 export function setBackupRetention(count: number | null): void {
   const data = read();
   data.backupRetention = count;
+  write(data);
+}
+
+export function getSettings(): { autoStart: boolean; autoStartInstances: boolean; autoStartInstanceList: string[] } {
+  const data = read();
+  return {
+    autoStart: data.autoStart,
+    autoStartInstances: data.autoStartInstances,
+    autoStartInstanceList: data.autoStartInstanceList,
+  };
+}
+
+export function updateSettings(patch: { autoStart?: boolean; autoStartInstances?: boolean; autoStartInstanceList?: string[] }): void {
+  const data = read();
+  if (patch.autoStart !== undefined) data.autoStart = patch.autoStart;
+  if (patch.autoStartInstances !== undefined) data.autoStartInstances = patch.autoStartInstances;
+  if (patch.autoStartInstanceList !== undefined) data.autoStartInstanceList = patch.autoStartInstanceList;
   write(data);
 }

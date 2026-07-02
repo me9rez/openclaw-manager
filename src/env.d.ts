@@ -59,7 +59,17 @@ interface Window {
     app: {
       onTrayNavigateInstance: (callback: (name: string) => void) => () => void;
     };
+    settings: {
+      get: () => Promise<AppSettings>;
+      set: (patch: { autoStart?: boolean; autoStartInstances?: boolean; autoStartInstanceList?: string[] }) => Promise<void>;
+    };
   };
+}
+
+interface AppSettings {
+  autoStart: boolean;
+  autoStartInstances: boolean;
+  autoStartInstanceList: string[];
 }
 
 type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "reconnecting" | "error" | "crashed";
