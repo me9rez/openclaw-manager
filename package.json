@@ -1,7 +1,6 @@
 {
   "name": "openclaw-manager",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -12,7 +11,8 @@
     "test:e2e": "playwright test --config playwright.config.ts",
     "test:e2e:headed": "playwright test --config playwright.config.ts --headed",
     "setup:node": "node scripts/fetch-node.cjs",
-    "build:installer": "npm run setup:node && npm run build && electron-builder"
+    "build:installer": "npm run setup:node && npm run build && electron-builder",
+    "release:all": "npm run build:installer && uv run scripts/upload-ms/upload.py"
   },
   "dependencies": {
     "@lucide/vue": "^1.23.0",
