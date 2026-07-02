@@ -117,6 +117,7 @@ export function registerIpcHandlers(): void {
       `$env:OPENCLAW_CONFIG_PATH = "${path.join(cwd, "openclaw.json")}"`,
       `$env:OPENCLAW_STATE_DIR = "${cwd}"`,
       `$env:OPENCLAW_GATEWAY_TOKEN = "${record.token}"`,
+      `$env:OPENCLAW_WORKSPACE_DIR = "${path.join(cwd, "workspace")}"`,
       `Set-Location '${cwd}'`,
     ].join("; ");
     fs.writeFileSync(psScript, psCmd, "utf-8");

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { InstanceInfo } from "../stores/instances";
+import { FolderOpen } from "@lucide/vue";
 
 const props = defineProps<{
   instance: InstanceInfo;
@@ -60,9 +61,14 @@ async function openFolder() {
   <div class="card" @click="emit('select', instance.name)">
     <div class="card-header">
       <span class="instance-name">{{ instance.name }}</span>
-      <span :class="['badge']" :style="{ background: statusColor(instance.status) }">
-        {{ statusLabel[instance.status] || instance.status }}
-      </span>
+      <div class="header-actions">
+        <button class="header-icon" @click.stop="openFolder" title="打开所在文件夹">
+          <FolderOpen :size="14" />
+        </button>
+        <span :class="['badge']" :style="{ background: statusColor(instance.status) }">
+          {{ statusLabel[instance.status] || instance.status }}
+        </span>
+      </div>
     </div>
     <div class="card-body">
       <div class="info-row">
@@ -94,7 +100,6 @@ async function openFolder() {
         <button class="btn btn-primary" @click="emit('start', instance.name)">启动</button>
         <button class="btn btn-danger" @click="emit('remove', instance.name)">删除</button>
       </template>
-      <button class="btn btn-ghost btn-icon" @click="openFolder" title="打开所在文件夹">打开</button>
     </div>
   </div>
 </template>
@@ -195,9 +200,25 @@ async function openFolder() {
   color: var(--muted);
 }
 .btn-ghost:hover { border-color: var(--border-hover); color: var(--text); }
-.btn-icon {
-  margin-left: auto;
-  font-size: 14px;
-  padding: 4px 8px;
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.header-icon {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.header-icon:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 </style>
