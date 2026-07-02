@@ -173,8 +173,6 @@ export function resolveNodeBinary(): string {
     path.join(process.env.LOCALAPPDATA || "", "Programs", "nodejs", "node.exe"),
     path.join(process.env.LOCALAPPDATA || "", "mise", "shims", "node.exe"),
     path.join(process.env.USERPROFILE || "", "AppData", "Local", "mise", "shims", "node.exe"),
-    "/usr/local/bin/node",
-    "/usr/bin/node",
   );
 
   // 2. Bundled Node.js (production build)

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { InstanceInfo } from "../stores/instances";
+import { FolderOpen } from "@lucide/vue";
 
 const props = defineProps<{
   instance: InstanceInfo;
@@ -20,7 +21,8 @@ function statusColor(status: string): string {
     case "error": return "var(--danger)";
     case "crashed": return "var(--danger)";
     case "starting":
-    case "stopping": return "var(--warn)";
+    case "stopping":
+    case "reconnecting": return "var(--warn)";
     default: return "var(--muted)";
   }
 }
@@ -31,6 +33,7 @@ const statusLabel: Record<string, string> = {
   running: "运行中",
   stopping: "停止中...",
   stopped: "已停止",
+  reconnecting: "重新连接中",
   error: "错误",
   crashed: "崩溃",
 };
@@ -44,15 +47,28 @@ function formatUptime(startedAt?: number): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}时${minutes % 60}分`;
 }
+
+async function openFolder() {
+  try {
+    await window.api.instances.openFolder(props.instance.name);
+  } catch (err) {
+    console.error("[open-folder] failed:", err);
+  }
+}
 </script>
 
 <template>
   <div class="card" @click="emit('select', instance.name)">
     <div class="card-header">
       <span class="instance-name">{{ instance.name }}</span>
-      <span :class="['badge']" :style="{ background: statusColor(instance.status) }">
-        {{ statusLabel[instance.status] || instance.status }}
-      </span>
+      <div class="header-actions">
+        <button class="header-icon" @click.stop="openFolder" title="打开所在文件夹">
+          <FolderOpen :size="14" />
+        </button>
+        <span :class="['badge']" :style="{ background: statusColor(instance.status) }">
+          {{ statusLabel[instance.status] || instance.status }}
+        </span>
+      </div>
     </div>
     <div class="card-body">
       <div class="info-row">
@@ -143,6 +159,9 @@ function formatUptime(startedAt?: number): string {
   font-size: 12px;
   color: var(--accent);
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-actions {
   display: flex;
@@ -181,4 +200,25 @@ function formatUptime(startedAt?: number): string {
   color: var(--muted);
 }
 .btn-ghost:hover { border-color: var(--border-hover); color: var(--text); }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.header-icon {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.header-icon:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
 </style>

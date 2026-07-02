@@ -1,3 +1,7 @@
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { exec } from "child_process";
 import { ipcMain, BrowserWindow, shell } from "electron";
 import {
   listAvailableVersions,
@@ -10,13 +14,15 @@ import {
   startInstance,
   stopInstance,
   removeInstance,
+  forceReconnectInstance,
+  stopReconnectInstance,
   getAllInstanceStatuses,
   getInstanceLogs,
   syncStoreToMemory,
   onStatus,
   onLog,
 } from "./instance-manager";
-import { getInstances as storeGetInstances } from "./store";
+import { getInstances as storeGetInstances, getInstance, getInstanceDir, getVersionDir } from "./store";
 import * as configManager from "./config-manager";
 
 export function registerIpcHandlers(): void {
@@ -75,6 +81,22 @@ export function registerIpcHandlers(): void {
     removeInstance(name);
   });
 
+  ipcMain.handle("instances:force-reconnect", async (_event, name: string) => {
+    forceReconnectInstance(name);
+  });
+
+  ipcMain.handle("instances:stop-reconnect", async (_event, name: string) => {
+    stopReconnectInstance(name);
+  });
+
+  // Diagnostic: simulate a WS drop without killing the gateway process,
+  // so the auto-reconnect path can be exercised from tests.
+  ipcMain.handle("instances:debug-disconnect-gateway", async (_event, name: string) => {
+    const inst = getAllInstanceStatuses().find((s) => s.name === name);
+    if (!inst) throw new Error(`Instance "${name}" not found`);
+    inst.gateway?.simulateDisconnect();
+  });
+
   ipcMain.handle("instances:getLogs", async (_event, name: string) => {
     return getInstanceLogs(name);
   });
@@ -84,16 +106,52 @@ export function registerIpcHandlers(): void {
     await shell.openExternal(url);
   });
 
+  ipcMain.handle("instances:open-terminal", async (_event, instanceName: string) => {
+    const record = getInstance(instanceName);
+    if (!record) throw new Error(`Instance "${instanceName}" not found`);
+    const cwd = getInstanceDir(instanceName);
+    const binDir = path.join(getVersionDir(record.version), "node_modules", ".bin");
+    const psScript = path.join(os.tmpdir(), `openclaw-${instanceName}.ps1`);
+    const psCmd = [
+      `$env:PATH = "${binDir};$env:PATH"`,
+      `$env:OPENCLAW_CONFIG_PATH = "${path.join(cwd, "openclaw.json")}"`,
+      `$env:OPENCLAW_STATE_DIR = "${cwd}"`,
+      `$env:OPENCLAW_GATEWAY_TOKEN = "${record.token}"`,
+      `$env:OPENCLAW_WORKSPACE_DIR = "${path.join(cwd, "workspace")}"`,
+      `Set-Location '${cwd}'`,
+    ].join("; ");
+    fs.writeFileSync(psScript, psCmd, "utf-8");
+    exec(
+      `start "PowerShell" powershell.exe -NoExit -WindowStyle Normal -ExecutionPolicy Bypass -File "${psScript}"`,
+      (error) => { if (error) console.error(`[open-terminal] exec error:`, error); },
+    );
+  });
+
+  ipcMain.handle("instances:open-folder", async (_event, instanceName: string) => {
+    const record = getInstance(instanceName);
+    if (!record) throw new Error(`Instance "${instanceName}" not found`);
+    const dir = getInstanceDir(instanceName);
+    await shell.openPath(dir);
+  });
+
   // Diagnostic: test spawning a process
-  ipcMain.handle("debug:spawn", async (_event, command: string) => {
+  ipcMain.handle("debug:spawn", async (_event, command: string, args?: string[]) => {
     const { execFileSync } = await import("child_process");
+    const opts = {
+      encoding: "utf-8" as const,
+      timeout: 10000,
+      stdio: ["ignore", "pipe", "pipe"] as ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    };
     try {
-      const result = execFileSync("cmd.exe", ["/c", command], {
-        encoding: "utf-8",
-        timeout: 10000,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      });
+      let result: string;
+      if (args) {
+        result = execFileSync(command, args, opts);
+      } else if (process.platform === "win32") {
+        result = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], opts);
+      } else {
+        result = execFileSync("sh", ["-c", command], opts);
+      }
       return { ok: true, output: result };
     } catch (err: unknown) {
       const e = err as { message?: string; stderr?: string; status?: number };

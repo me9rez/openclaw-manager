@@ -20,8 +20,13 @@ contextBridge.exposeInMainWorld("api", {
     stop: (name: string) => ipcRenderer.invoke("instances:stop", name),
     restart: (name: string) => ipcRenderer.invoke("instances:restart", name),
     remove: (name: string) => ipcRenderer.invoke("instances:remove", name),
+    forceReconnect: (name: string) => ipcRenderer.invoke("instances:force-reconnect", name),
+    stopReconnect: (name: string) => ipcRenderer.invoke("instances:stop-reconnect", name),
+    debugDisconnectGateway: (name: string) => ipcRenderer.invoke("instances:debug-disconnect-gateway", name),
     getLogs: (name: string) => ipcRenderer.invoke("instances:getLogs", name),
     openWebUI: (port: number, token: string) => ipcRenderer.invoke("instances:open-webui", port, token),
+    openTerminal: (instanceName: string) => ipcRenderer.invoke("instances:open-terminal", instanceName),
+    openFolder: (instanceName: string) => ipcRenderer.invoke("instances:open-folder", instanceName),
     onStatusChanged: (callback: (data: { name: string; status: string; message?: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { name: string; status: string; message?: string }) =>
         callback(data);
@@ -29,7 +34,7 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("instance:status-changed", handler);
     },
     debug: {
-      spawn: (command: string) => ipcRenderer.invoke("debug:spawn", command),
+      spawn: (command: string, args?: string[]) => ipcRenderer.invoke("debug:spawn", command, args),
     },
     onLog: (callback: (data: { name: string; line: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { name: string; line: string }) => callback(data);

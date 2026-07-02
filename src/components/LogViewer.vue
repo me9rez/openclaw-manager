@@ -21,6 +21,66 @@ function cleanForCopy(s: string): string {
   return s.replace(OSC_RE, "").replace(ANSI_RE, "").replace(CARRIAGE_RE, "");
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const FG_COLORS: Record<number, string> = {
+  30: "ansi-black",
+  31: "ansi-red",
+  32: "ansi-green",
+  33: "ansi-yellow",
+  34: "ansi-blue",
+  35: "ansi-magenta",
+  36: "ansi-cyan",
+  37: "ansi-white",
+  90: "ansi-bright-black",
+  91: "ansi-bright-red",
+  92: "ansi-bright-green",
+  93: "ansi-bright-yellow",
+  94: "ansi-bright-blue",
+  95: "ansi-bright-magenta",
+  96: "ansi-bright-cyan",
+  97: "ansi-bright-white",
+};
+
+function ansiToHtml(line: string): string {
+  let result = "";
+  let currentClass = "";
+  let lastIndex = 0;
+
+  const cleaned = line.replace(OSC_RE, "").replace(CARRIAGE_RE, "");
+
+  const regex = /\x1b\[([0-9;]*)m/g;
+  let match;
+  while ((match = regex.exec(cleaned)) !== null) {
+    result += escapeHtml(cleaned.slice(lastIndex, match.index));
+    lastIndex = regex.lastIndex;
+
+    const codes = match[1].split(";").map(Number);
+    for (const code of codes) {
+      if (code === 0) {
+        if (currentClass) {
+          result += "</span>";
+          currentClass = "";
+        }
+      } else if (FG_COLORS[code]) {
+        if (currentClass) {
+          result += "</span>";
+        }
+        currentClass = FG_COLORS[code];
+        result += `<span class="${currentClass}">`;
+      }
+    }
+  }
+
+  result += escapeHtml(cleaned.slice(lastIndex));
+  if (currentClass) {
+    result += "</span>";
+  }
+  return result;
+}
+
 async function loadHistory() {
   try {
     logs.value = await window.api.instances.getLogs(props.instanceName);
@@ -113,7 +173,12 @@ onUnmounted(() => {
     </div>
     <div ref="logContainer" class="log-content" @scroll="autoScroll = false">
       <div v-if="logs.length === 0" class="log-empty">暂无日志...</div>
-      <div v-for="(line, i) in logs" :key="i" class="log-line">{{ line }}</div>
+      <div
+        v-for="(line, i) in logs"
+        :key="i"
+        class="log-line"
+        v-html="ansiToHtml(line)"
+      ></div>
     </div>
   </div>
 </template>
@@ -122,7 +187,8 @@ onUnmounted(() => {
 .log-viewer {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -187,19 +253,32 @@ onUnmounted(() => {
   font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
   font-size: 12px;
   line-height: 1.6;
-  background: #f4f4f7;
+  background: #1e1e2e;
 }
 .log-empty {
-  color: var(--muted);
+  color: #6c7086;
   text-align: center;
   padding: 24px;
 }
 .log-line {
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--muted);
+  color: #cdd6f4;
 }
-.log-line:hover {
-  color: var(--text);
-}
+:deep(.ansi-black) { color: #45475a; }
+:deep(.ansi-red) { color: #f38ba8; }
+:deep(.ansi-green) { color: #a6e3a1; }
+:deep(.ansi-yellow) { color: #f9e2af; }
+:deep(.ansi-blue) { color: #89b4fa; }
+:deep(.ansi-magenta) { color: #f5c2e7; }
+:deep(.ansi-cyan) { color: #94e2d5; }
+:deep(.ansi-white) { color: #bac2de; }
+:deep(.ansi-bright-black) { color: #585b70; }
+:deep(.ansi-bright-red) { color: #f38ba8; }
+:deep(.ansi-bright-green) { color: #a6e3a1; }
+:deep(.ansi-bright-yellow) { color: #f9e2af; }
+:deep(.ansi-bright-blue) { color: #89b4fa; }
+:deep(.ansi-bright-magenta) { color: #f5c2e7; }
+:deep(.ansi-bright-cyan) { color: #94e2d5; }
+:deep(.ansi-bright-white) { color: #a6adc8; }
 </style>

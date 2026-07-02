@@ -22,11 +22,16 @@ interface Window {
       stop: (name: string) => Promise<void>;
       restart: (name: string) => Promise<void>;
       remove: (name: string) => Promise<void>;
+      forceReconnect: (name: string) => Promise<void>;
+      stopReconnect: (name: string) => Promise<void>;
+      debugDisconnectGateway: (name: string) => Promise<void>;
       getLogs: (name: string) => Promise<string[]>;
       openWebUI: (port: number, token: string) => Promise<void>;
+      openTerminal: (instanceName: string) => Promise<void>;
+      openFolder: (instanceName: string) => Promise<void>;
       onStatusChanged: (callback: (data: { name: string; status: InstanceStatus; message?: string }) => void) => () => void;
     debug: {
-      spawn: (command: string) => Promise<{ ok: boolean; output?: string; error?: string; stderr?: string; code?: number }>;
+      spawn: (command: string, args?: string[]) => Promise<{ ok: boolean; output?: string; error?: string; stderr?: string; code?: number }>;
     };
       onLog: (callback: (data: { name: string; line: string }) => void) => () => void;
     };
@@ -57,7 +62,7 @@ interface Window {
   };
 }
 
-type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "error" | "crashed";
+type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "reconnecting" | "error" | "crashed";
 
 interface InstanceConfig {
   name: string;

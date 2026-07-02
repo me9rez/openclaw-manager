@@ -12,7 +12,7 @@ export interface InstanceInfo {
   health?: { version?: string; uptime?: number };
 }
 
-type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "error" | "crashed";
+type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "reconnecting" | "error" | "crashed";
 
 export const useInstancesStore = defineStore("instances", () => {
   const instances = ref<InstanceInfo[]>([]);
@@ -76,6 +76,24 @@ export const useInstancesStore = defineStore("instances", () => {
     }
   }
 
+  async function forceReconnect(name: string) {
+    error.value = null;
+    try {
+      await window.api.instances.forceReconnect(name);
+    } catch (err) {
+      error.value = String(err);
+    }
+  }
+
+  async function stopReconnect(name: string) {
+    error.value = null;
+    try {
+      await window.api.instances.stopReconnect(name);
+    } catch (err) {
+      error.value = String(err);
+    }
+  }
+
   function setupListeners() {
     window.api.instances.onStatusChanged((data) => {
       const idx = instances.value.findIndex((i) => i.name === data.name);
@@ -99,6 +117,8 @@ export const useInstancesStore = defineStore("instances", () => {
     stop,
     restart,
     remove,
+    forceReconnect,
+    stopReconnect,
     setupListeners,
   };
 });
