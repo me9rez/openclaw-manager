@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import VsToast from "@vuesimple/vs-toast";
 import { useConfigStore } from "../stores/config";
 import ConfigBlockList from "../components/ConfigBlockList.vue";
 import ConfigBlockEditor from "../components/ConfigBlockEditor.vue";
@@ -29,6 +30,9 @@ const syncRunning = ref(false);
 const applyTargetTemplate = ref<string>("");
 const applyTargets = ref<string[]>([]);
 const applyRunning = ref(false);
+const applyMode = ref<"overwrite" | "merge">("merge");
+
+const syncMode = ref<"overwrite" | "merge">("merge");
 
 const showNewTplDialog = ref(false);
 const newTplName = ref("");
@@ -40,13 +44,14 @@ const editTplName = ref("");
 const editTplDesc = ref("");
 const editTplContent = ref("");
 
-const toastMsg = ref<string | null>(null);
-const toastKind = ref<"ok" | "err" | "info">("ok");
+const showImportDialog = ref(false);
+const importPreview = ref<ImportOpenclawPreview | null>(null);
+const importSelections = ref<{ key: string; name: string; description: string; selected: boolean; collisionMode: "overwrite" | "skip" }[]>([]);
+const importRunning = ref(false);
 
 function showToast(msg: string, kind: "ok" | "err" | "info" = "ok") {
-  toastMsg.value = msg;
-  toastKind.value = kind;
-  setTimeout(() => { toastMsg.value = null; }, 4000);
+  const variant = kind === "ok" ? "success" : kind === "err" ? "error" : "info";
+  VsToast.show({ message: msg, variant });
 }
 
 const currentBlocks = computed(() => {
@@ -248,7 +253,7 @@ async function performSync() {
   if (!confirm(`确认将 "${syncBlock.value}" 块从 ${syncSource.value} 同步到 ${syncTargets.value.length} 个目标实例?`)) return;
   syncRunning.value = true;
   try {
-    const r = await store.syncBlock(syncSource.value, syncBlock.value, syncTargets.value);
+    const r = await store.syncBlock(syncSource.value, syncBlock.value, syncTargets.value, syncMode.value);
     if (r.ok) {
       showToast(`已同步到 ${r.results.length} 个实例`, "ok");
     } else {
@@ -278,7 +283,7 @@ async function performApplyTemplate() {
   }
   applyRunning.value = true;
   try {
-    const r = await store.applyTemplate(applyTargetTemplate.value, applyTargets.value);
+    const r = await store.applyTemplate(applyTargetTemplate.value, applyTargets.value, applyMode.value);
     if (r.ok) {
       showToast(`已应用模板到 ${r.results.length} 个实例`, "ok");
     } else {
@@ -290,6 +295,82 @@ async function performApplyTemplate() {
     await store.loadBackups(null);
   } finally {
     applyRunning.value = false;
+  }
+}
+
+async function onImportOpenclaw() {
+  const res = await store.importOpenclawPreview();
+  if (res.canceled) return;
+  if (res.error || !res.preview) {
+    showToast("读取失败: " + (res.error ?? "未知错误"), "err");
+    return;
+  }
+  importPreview.value = res.preview;
+  importSelections.value = res.preview.blocks.map((b) => ({
+    key: b.key,
+    name: b.key,
+    description: "",
+    selected: true,
+    collisionMode: "overwrite" as const,
+  }));
+  showImportDialog.value = true;
+}
+
+function toggleImportSelected(key: string) {
+  const s = importSelections.value.find((x) => x.key === key);
+  if (s) s.selected = !s.selected;
+}
+
+function setCollisionMode(key: string, mode: "overwrite" | "skip") {
+  const s = importSelections.value.find((x) => x.key === key);
+  if (s) s.collisionMode = mode;
+}
+
+function isTemplateNameTaken(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (!n) return false;
+  return store.templates.some((t) => t.name.trim().toLowerCase() === n);
+}
+
+function s_selected(key: string): boolean {
+  return importSelections.value.find((s) => s.key === key)?.selected ?? false;
+}
+
+function s_name(key: string): string {
+  return importSelections.value.find((s) => s.key === key)?.name ?? "";
+}
+
+function s_mode(key: string): "overwrite" | "skip" {
+  return importSelections.value.find((s) => s.key === key)?.collisionMode ?? "overwrite";
+}
+
+async function confirmImport() {
+  if (!importPreview.value) return;
+  const inputs = importSelections.value
+    .filter((s) => s.selected && !(isTemplateNameTaken(s.name) && s.collisionMode === "skip"))
+    .map((s) => ({
+      name: s.name.trim() || s.key,
+      description: s.description.trim() || undefined,
+      blockKey: s.key,
+      content: JSON.parse(JSON.stringify(importPreview.value!.blocks.find((b) => b.key === s.key)!.content)),
+    }));
+  if (inputs.length === 0) {
+    showToast("请至少选择一个块", "err");
+    return;
+  }
+  importRunning.value = true;
+  try {
+    const created = await store.importTemplates(inputs);
+    if (created.length > 0) {
+      showToast(`已导入 ${created.length} 个模板`, "ok");
+      showImportDialog.value = false;
+      importPreview.value = null;
+      importSelections.value = [];
+    } else {
+      showToast("导入失败: " + (store.error ?? "未知错误"), "err");
+    }
+  } finally {
+    importRunning.value = false;
   }
 }
 
@@ -329,6 +410,12 @@ async function onDeleteTemplate(id: string) {
   if (!confirm(`确认删除模板 "${t.name}"?`)) return;
   await store.deleteTemplate(id);
   showToast("模板已删除", "ok");
+}
+
+async function onCopyTemplate(id: string) {
+  const ok = await store.copyTemplate(id);
+  if (ok) showToast("已复制到剪贴板", "ok");
+  else showToast("复制失败: " + (store.error ?? "未知错误"), "err");
 }
 
 async function onRestoreBackup(b: BackupEntry) {
@@ -371,8 +458,6 @@ function toggleApplyTarget(name: string) {
       {{ store.error }}
       <button class="dismiss" @click="store.clearError()">×</button>
     </div>
-
-    <div v-if="toastMsg" :class="['toast', `toast-${toastKind}`]">{{ toastMsg }}</div>
 
     <div class="subtabs">
       <button :class="['subtab', { active: subTab === 'instance' }]" @click="subTab = 'instance'">实例配置</button>
@@ -458,6 +543,13 @@ function toggleApplyTarget(name: string) {
             <label>4. 预览 diff</label>
             <button class="btn btn-ghost btn-sm" :disabled="!syncSource || !syncBlock || syncTargets.length === 0" @click="refreshSyncDiff">重新计算 diff</button>
           </div>
+          <div class="form-row">
+            <label>5. 写入模式</label>
+            <div class="collision-mode">
+              <button :class="['mode-btn', { active: syncMode === 'merge' }]" @click="syncMode = 'merge'">合并</button>
+              <button :class="['mode-btn', { active: syncMode === 'overwrite' }]" @click="syncMode = 'overwrite'">覆盖</button>
+            </div>
+          </div>
           <div class="sync-warning">
             同步前将为每个目标实例自动创建 tar.gz 备份(可通过 <code>openclaw backup verify</code> 校验)。同步后需重启目标实例才能生效。
           </div>
@@ -478,13 +570,15 @@ function toggleApplyTarget(name: string) {
       </div>
     </div>
 
-    <div v-if="subTab === 'templates'" class="tab-body">
+    <div v-if="subTab === 'templates'" class="tab-body templates-body">
       <ConfigTemplateList
         :templates="store.templates"
         @apply="openApplyTemplate"
         @edit="(id) => { const t = store.templates.find((x) => x.id === id); if (t) openEditTemplate(t); }"
         @delete="onDeleteTemplate"
+        @copy="onCopyTemplate"
         @new="showNewTplDialog = true"
+        @importOpenclaw="onImportOpenclaw"
       />
 
       <div v-if="applyTargetTemplate" class="apply-bar">
@@ -494,6 +588,10 @@ function toggleApplyTarget(name: string) {
             <input type="checkbox" :checked="applyTargets.includes(i.name)" @change="toggleApplyTarget(i.name)" />
             <span>{{ i.name }}</span>
           </label>
+        </div>
+        <div class="collision-mode">
+          <button :class="['mode-btn', { active: applyMode === 'merge' }]" @click="applyMode = 'merge'">合并</button>
+          <button :class="['mode-btn', { active: applyMode === 'overwrite' }]" @click="applyMode = 'overwrite'">覆盖</button>
         </div>
         <button class="btn btn-primary btn-sm" :disabled="applyRunning || applyTargets.length === 0" @click="performApplyTemplate">
           {{ applyRunning ? "应用中..." : `应用到 ${applyTargets.length} 个` }}
@@ -560,6 +658,57 @@ function toggleApplyTarget(name: string) {
         </div>
       </div>
     </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showImportDialog && importPreview" class="modal-overlay" @click.self="showImportDialog = false">
+        <div class="modal wide">
+          <h2>导入模板</h2>
+          <p class="desc">已载入 <code>{{ importPreview.fileName }}</code>,将每个顶层配置块创建为一个独立模板。可勾选需要的块并修改模板名。</p>
+          <div class="import-list">
+            <div v-for="b in importPreview.blocks" :key="b.key" class="import-row">
+              <label class="import-check">
+                <input
+                  type="checkbox"
+                  :checked="importSelections.find((s) => s.key === b.key)?.selected"
+                  @change="toggleImportSelected(b.key)"
+                />
+              </label>
+              <div class="import-main">
+                <div class="import-title">
+                  <span class="tpl-block">{{ b.key }}</span>
+                  <span class="tpl-meta">{{ b.type }} · {{ b.childCount }} 项 · {{ b.size }} 字节</span>
+                </div>
+                <div class="import-fields">
+                  <input v-model="importSelections.find((s) => s.key === b.key)!.name" class="input" placeholder="模板名称" />
+                  <input v-model="importSelections.find((s) => s.key === b.key)!.description" class="input" placeholder="描述(可选)" />
+                </div>
+                <div v-if="s_selected(b.key) && isTemplateNameTaken(s_name(b.key))" class="dup-warn">
+                  ⚠ 已存在同名模板,请选择「覆盖更新」或「跳过」
+                  <div class="collision-mode">
+                    <button
+                      :class="['mode-btn', { active: s_mode(b.key) === 'overwrite' }]"
+                      @click="setCollisionMode(b.key, 'overwrite')"
+                    >覆盖更新</button>
+                    <button
+                      :class="['mode-btn', { active: s_mode(b.key) === 'skip' }]"
+                      @click="setCollisionMode(b.key, 'skip')"
+                    >跳过</button>
+                  </div>
+                </div>
+                <pre class="tpl-json">{{ JSON.stringify(b.content, null, 2) }}</pre>
+              </div>
+            </div>
+            <div v-if="importPreview.blocks.length === 0" class="empty">该文件没有可导入的顶层配置块。</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" @click="showImportDialog = false">取消</button>
+            <button class="btn btn-primary" :disabled="importRunning" @click="confirmImport">
+              {{ importRunning ? "导入中..." : `导入 ${importSelections.filter((s) => s.selected).length} 个` }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -571,7 +720,7 @@ function toggleApplyTarget(name: string) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 100%;
+  height: 100%;
 }
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(8px); }
@@ -606,20 +755,6 @@ function toggleApplyTarget(name: string) {
   font-size: 18px;
   padding: 0 4px;
 }
-.toast {
-  padding: 10px 16px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  border: 1px solid;
-  animation: slide-in 0.2s ease-out;
-}
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.toast-ok { background: rgba(21, 128, 61, 0.08); border-color: var(--ok); color: var(--ok); }
-.toast-err { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
-.toast-info { background: rgba(37, 99, 235, 0.08); border-color: var(--info); color: var(--info); }
 .subtabs {
   display: flex;
   gap: 4px;
@@ -644,6 +779,15 @@ function toggleApplyTarget(name: string) {
   background: var(--accent-subtle);
 }
 .tab-body {
+  flex: 1;
+  min-height: 0;
+}
+.templates-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.templates-body .template-list {
   flex: 1;
   min-height: 0;
 }
@@ -903,4 +1047,96 @@ function toggleApplyTarget(name: string) {
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
 .btn-ghost:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text); }
+.import-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.import-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+}
+.import-check {
+  padding-top: 2px;
+}
+.import-main {
+  flex: 1;
+  min-width: 0;
+}
+.import-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.import-fields {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.import-fields .input { flex: 1; }
+.dup-warn {
+  font-size: 11px;
+  color: var(--warn, #d97706);
+  margin-top: 6px;
+}
+.collision-mode {
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.mode-btn {
+  padding: 3px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mode-btn:hover { border-color: var(--border-hover); color: var(--text); }
+.mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--primary-foreground);
+}
+.tpl-block {
+  font-size: 11px;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.tpl-meta {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.tpl-json {
+  margin: 8px 0 0;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 220px;
+  overflow-y: auto;
+  color: var(--text);
+}
+.empty {
+  padding: 32px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
 </style>

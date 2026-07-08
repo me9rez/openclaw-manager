@@ -176,14 +176,14 @@ export function getInstanceBlock(name: string, blockKey: string): unknown {
   return doc.parsed[blockKey];
 }
 
-function applyProtectedMerge(
+function reinjectProtected(
   blockKey: string,
   current: Record<string, unknown>,
-  incoming: Record<string, unknown>,
+  target: Record<string, unknown>,
 ): Record<string, unknown> {
   const protectedPaths = PROTECTED_PATHS[blockKey];
-  if (!protectedPaths || protectedPaths.length === 0) return incoming;
-  const merged = deepClone(incoming);
+  if (!protectedPaths || protectedPaths.length === 0) return target;
+  const merged = deepClone(target);
   for (const path of protectedPaths) {
     const segs = path.split(".");
     let cur: Record<string, unknown> | undefined = current;
@@ -205,6 +205,66 @@ function applyProtectedMerge(
     }
   }
   return merged;
+}
+
+function deepMergeObjects(
+  current: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...current };
+  for (const k of Object.keys(incoming)) {
+    const cv = current[k];
+    const iv = incoming[k];
+    if (isPlainObject(cv) && isPlainObject(iv)) {
+      out[k] = deepMergeObjects(cv, iv);
+    } else if (Array.isArray(cv) && Array.isArray(iv)) {
+      out[k] = mergeArrays(cv, iv);
+    } else {
+      out[k] = iv;
+    }
+  }
+  return out;
+}
+
+function detectIdKey(elements: unknown[]): string | null {
+  const priority = ["name", "id", "type"];
+  const objs = elements.filter((e): e is Record<string, unknown> => isPlainObject(e));
+  if (objs.length === 0) return null;
+  for (const key of priority) {
+    if (objs.every((o) => typeof o[key] !== "undefined")) return key;
+  }
+  return null;
+}
+
+function mergeArrays(current: unknown[], incoming: unknown[]): unknown[] {
+  const idKey = detectIdKey([...incoming, ...current]);
+  if (idKey) {
+    const map = new Map<string, unknown>();
+    const order: string[] = [];
+    for (const el of current) {
+      const id = JSON.stringify((el as Record<string, unknown>)[idKey]);
+      if (!map.has(id)) {
+        map.set(id, el);
+        order.push(id);
+      }
+    }
+    for (const el of incoming) {
+      const id = JSON.stringify((el as Record<string, unknown>)[idKey]);
+      map.set(id, el);
+      if (!order.includes(id)) order.push(id);
+    }
+    return order.map((id) => map.get(id) as unknown);
+  }
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+  for (const el of [...incoming, ...current]) {
+    const key = JSON.stringify(el);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(el);
+    }
+  }
+  return out;
 }
 
 function atomicWriteJson(filePath: string, content: unknown): void {
@@ -471,6 +531,7 @@ async function writeBlockInternal(
   content: unknown,
   operation: BackupOperation,
   meta: { source?: string; templateId?: string; templateName?: string },
+  mode: "overwrite" | "merge" = "overwrite",
 ): Promise<SetBlockResult> {
   const configPath = getInstanceConfigPath(name);
   const doc = readInstanceConfig(name);
@@ -479,10 +540,24 @@ async function writeBlockInternal(
   let nextBlock: unknown;
   if (content === undefined) {
     nextBlock = undefined;
-  } else if (isPlainObject(currentRoot[blockKey]) && isPlainObject(content)) {
-    nextBlock = applyProtectedMerge(blockKey, currentRoot[blockKey] as Record<string, unknown>, content as Record<string, unknown>);
+  } else if (mode === "merge") {
+    if (isPlainObject(currentRoot[blockKey]) && isPlainObject(content)) {
+      nextBlock = reinjectProtected(
+        blockKey,
+        currentRoot[blockKey] as Record<string, unknown>,
+        deepMergeObjects(currentRoot[blockKey] as Record<string, unknown>, content as Record<string, unknown>),
+      );
+    } else if (Array.isArray(currentRoot[blockKey]) && Array.isArray(content)) {
+      nextBlock = mergeArrays(currentRoot[blockKey] as unknown[], content as unknown[]);
+    } else {
+      nextBlock = content;
+    }
   } else {
-    nextBlock = content;
+    if (isPlainObject(currentRoot[blockKey]) && isPlainObject(content)) {
+      nextBlock = reinjectProtected(blockKey, currentRoot[blockKey] as Record<string, unknown>, content as Record<string, unknown>);
+    } else {
+      nextBlock = content;
+    }
   }
 
   const nextRoot: Record<string, unknown> = { ...currentRoot };
@@ -504,17 +579,18 @@ async function writeBlockInternal(
 }
 
 export async function setInstanceBlock(name: string, blockKey: string, content: unknown): Promise<SetBlockResult> {
-  return writeBlockInternal(name, blockKey, content, "edit", {});
+  return writeBlockInternal(name, blockKey, content, "edit", {}, "overwrite");
 }
 
 export async function deleteInstanceBlock(name: string, blockKey: string): Promise<SetBlockResult> {
-  return writeBlockInternal(name, blockKey, undefined, "delete-block", {});
+  return writeBlockInternal(name, blockKey, undefined, "delete-block", {}, "overwrite");
 }
 
 export async function syncBlockToInstances(
   sourceName: string,
   blockKey: string,
   targetNames: string[],
+  mode: "overwrite" | "merge" = "overwrite",
 ): Promise<SyncResult> {
   const sourceBlock = getInstanceBlock(sourceName, blockKey);
   const results: SyncTargetResult[] = [];
@@ -527,14 +603,18 @@ export async function syncBlockToInstances(
       results.push({ name: target, ok: false, error: "实例不存在" });
       continue;
     }
-    const r = await writeBlockInternal(target, blockKey, sourceBlock, "sync", { source: sourceName });
+    const r = await writeBlockInternal(target, blockKey, sourceBlock, "sync", { source: sourceName }, mode);
     results.push({ name: target, ok: r.ok, error: r.error, backupId: r.backupId });
   }
   const ok = results.every((r) => r.ok);
   return { ok, results };
 }
 
-export async function applyTemplate(templateId: string, targets: string[]): Promise<SyncResult> {
+export async function applyTemplate(
+  templateId: string,
+  targets: string[],
+  mode: "overwrite" | "merge" = "overwrite",
+): Promise<SyncResult> {
   const tpl = storeGetTemplate(templateId);
   if (!tpl) return { ok: false, results: targets.map((n) => ({ name: n, ok: false, error: "模板不存在" })) };
   const results: SyncTargetResult[] = [];
@@ -547,7 +627,7 @@ export async function applyTemplate(templateId: string, targets: string[]): Prom
       source: tpl.name,
       templateId: tpl.id,
       templateName: tpl.name,
-    });
+    }, mode);
     results.push({ name: target, ok: r.ok, error: r.error, backupId: r.backupId });
   }
   const ok = results.every((r) => r.ok);
@@ -695,4 +775,74 @@ export function listAllInstancesWithConfig(): { name: string; hasConfig: boolean
     name: r.name,
     hasConfig: fs.existsSync(getInstanceConfigPath(r.name)),
   }));
+}
+
+export interface ImportBlockPreview {
+  key: string;
+  type: BlockSummary["type"];
+  childCount: number;
+  size: number;
+  content: unknown;
+}
+
+export interface ImportOpenclawPreview {
+  fileName: string;
+  blocks: ImportBlockPreview[];
+}
+
+export function parseOpenclawJsonBlocks(content: string, fileName: string): ImportOpenclawPreview {
+  const parsed = JSON.parse(content);
+  if (!isPlainObject(parsed)) {
+    throw new Error("openclaw.json 顶层必须是一个 JSON 对象");
+  }
+  const blocks: ImportBlockPreview[] = [];
+  for (const k of Object.keys(parsed).sort()) {
+    const summary = summarizeBlock(k, parsed[k]);
+    blocks.push({
+      key: summary.key,
+      type: summary.type,
+      childCount: summary.childCount,
+      size: summary.size,
+      content: parsed[k],
+    });
+  }
+  return { fileName, blocks };
+}
+
+export interface ImportTemplateInput {
+  name: string;
+  description?: string;
+  blockKey: string;
+  content: unknown;
+}
+
+export function importTemplates(inputs: ImportTemplateInput[]): ConfigTemplate[] {
+  const result: ConfigTemplate[] = [];
+  for (const input of inputs) {
+    if (!input.blockKey || !input.blockKey.trim()) continue;
+    const name = input.name.trim() || input.blockKey;
+    const description = input.description?.trim() || undefined;
+    const existing = storeListTemplates().find(
+      (t) => t.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (existing) {
+      const updated = updateTemplate(existing.id, {
+        name,
+        description,
+        blockKey: input.blockKey,
+        content: input.content,
+      });
+      if (updated) result.push(updated);
+    } else {
+      result.push(
+        createTemplate({
+          name,
+          description,
+          blockKey: input.blockKey,
+          content: input.content,
+        }),
+      );
+    }
+  }
+  return result;
 }

@@ -51,16 +51,19 @@ contextBridge.exposeInMainWorld("api", {
     deleteBlock: (name: string, blockKey: string) => ipcRenderer.invoke("config:deleteBlock", name, blockKey),
     diffBlock: (from: unknown, to: unknown) => ipcRenderer.invoke("config:diffBlock", from, to),
     listInstances: () => ipcRenderer.invoke("config:listInstances"),
-    syncBlock: (sourceName: string, blockKey: string, targetNames: string[]) =>
-      ipcRenderer.invoke("config:syncBlock", sourceName, blockKey, targetNames),
+    syncBlock: (sourceName: string, blockKey: string, targetNames: string[], mode: "overwrite" | "merge") =>
+      ipcRenderer.invoke("config:syncBlock", sourceName, blockKey, targetNames, mode),
     listTemplates: () => ipcRenderer.invoke("config:listTemplates"),
     createTemplate: (input: { name: string; description?: string; blockKey: string; content: unknown }) =>
       ipcRenderer.invoke("config:createTemplate", input),
     updateTemplate: (id: string, patch: { name?: string; description?: string; blockKey?: string; content?: unknown }) =>
       ipcRenderer.invoke("config:updateTemplate", id, patch),
     deleteTemplate: (id: string) => ipcRenderer.invoke("config:deleteTemplate", id),
-    applyTemplate: (templateId: string, targets: string[]) =>
-      ipcRenderer.invoke("config:applyTemplate", templateId, targets),
+    applyTemplate: (templateId: string, targets: string[], mode: "overwrite" | "merge") =>
+      ipcRenderer.invoke("config:applyTemplate", templateId, targets, mode),
+    importTemplates: (inputs: { name: string; description?: string; blockKey: string; content: unknown }[]) =>
+      ipcRenderer.invoke("config:importTemplates", inputs),
+    importOpenclawPreview: () => ipcRenderer.invoke("config:importOpenclawPreview"),
     listBackups: (instanceName: string) => ipcRenderer.invoke("config:listBackups", instanceName),
     listAllBackups: () => ipcRenderer.invoke("config:listAllBackups"),
     restoreBackup: (instanceName: string, backupId: string) =>
@@ -76,6 +79,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("tray:navigate-instance", handler);
       return () => ipcRenderer.removeListener("tray:navigate-instance", handler);
     },
+    copyText: (text: string) => ipcRenderer.invoke("app:copyText", text),
   },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),

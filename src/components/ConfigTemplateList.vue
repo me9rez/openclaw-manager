@@ -9,7 +9,9 @@ const emit = defineEmits<{
   apply: [templateId: string];
   edit: [templateId: string];
   delete: [templateId: string];
+  copy: [templateId: string];
   new: [];
+  importOpenclaw: [];
 }>();
 
 const showJsonFor = ref<string | null>(null);
@@ -31,7 +33,10 @@ function prettyJson(content: unknown): string {
   <div class="template-list">
     <div class="list-header">
       <span>模板库 ({{ templates.length }})</span>
-      <button class="btn btn-primary btn-sm" @click="emit('new')">+ 新建模板</button>
+      <div class="header-actions">
+        <button class="btn btn-ghost btn-sm" @click="emit('importOpenclaw')">导入模板</button>
+        <button class="btn btn-primary btn-sm" @click="emit('new')">+ 新建模板</button>
+      </div>
     </div>
     <div v-if="templates.length === 0" class="empty">
       暂无模板。在「实例配置」中编辑块后,点击「另存为模板」即可创建。
@@ -51,6 +56,7 @@ function prettyJson(content: unknown): string {
             <button class="btn btn-primary btn-sm" @click="emit('apply', t.id)">应用</button>
             <button class="btn btn-ghost btn-sm" @click="emit('edit', t.id)">编辑</button>
             <button class="btn btn-ghost btn-sm" @click="toggleJson(t.id)">{{ showJsonFor === t.id ? "收起" : "查看" }}</button>
+            <button class="btn btn-ghost btn-sm" @click="emit('copy', t.id)">复制</button>
             <button class="btn btn-danger-ghost btn-sm" @click="emit('delete', t.id)">删除</button>
           </div>
         </div>
@@ -66,6 +72,8 @@ function prettyJson(content: unknown): string {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .list-header {
   display: flex;
@@ -80,6 +88,10 @@ function prettyJson(content: unknown): string {
   border-bottom: 1px solid var(--border);
   background: var(--bg-accent);
 }
+.header-actions {
+  display: flex;
+  gap: 6px;
+}
 .empty {
   padding: 40px 16px;
   color: var(--muted);
@@ -90,6 +102,9 @@ function prettyJson(content: unknown): string {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .card {
   padding: 14px 16px;

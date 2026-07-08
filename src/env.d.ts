@@ -6,6 +6,29 @@ declare module "*.vue" {
   export default component;
 }
 
+declare module "@vuesimple/vs-toast" {
+  interface VsToastOptions {
+    title?: string;
+    message?: string;
+    variant?: "success" | "warning" | "error" | "info" | "secondary";
+    position?: string;
+    type?: string;
+    timeout?: number;
+    showClose?: boolean;
+    isSticky?: boolean;
+  }
+  const VsToast: {
+    show: (options?: VsToastOptions) => void;
+    success: (message: string, options?: VsToastOptions) => void;
+    error: (message: string, options?: VsToastOptions) => void;
+    warning: (message: string, options?: VsToastOptions) => void;
+    info: (message: string, options?: VsToastOptions) => void;
+    secondary: (message: string, options?: VsToastOptions) => void;
+    close: () => void;
+  };
+  export default VsToast;
+}
+
 interface Window {
   api: {
     versions: {
@@ -43,12 +66,14 @@ interface Window {
       deleteBlock: (name: string, blockKey: string) => Promise<SetBlockResult>;
       diffBlock: (from: unknown, to: unknown) => Promise<string[]>;
       listInstances: () => Promise<{ name: string; hasConfig: boolean }[]>;
-      syncBlock: (sourceName: string, blockKey: string, targetNames: string[]) => Promise<SyncResult>;
+      syncBlock: (sourceName: string, blockKey: string, targetNames: string[], mode: "overwrite" | "merge") => Promise<SyncResult>;
       listTemplates: () => Promise<ConfigTemplate[]>;
       createTemplate: (input: { name: string; description?: string; blockKey: string; content: unknown }) => Promise<ConfigTemplate>;
       updateTemplate: (id: string, patch: { name?: string; description?: string; blockKey?: string; content?: unknown }) => Promise<ConfigTemplate | undefined>;
       deleteTemplate: (id: string) => Promise<void>;
-      applyTemplate: (templateId: string, targets: string[]) => Promise<SyncResult>;
+      applyTemplate: (templateId: string, targets: string[], mode: "overwrite" | "merge") => Promise<SyncResult>;
+      importOpenclawPreview: () => Promise<{ canceled: boolean; preview?: ImportOpenclawPreview; error?: string }>;
+      importTemplates: (inputs: { name: string; description?: string; blockKey: string; content: unknown }[]) => Promise<ConfigTemplate[]>;
       listBackups: (instanceName: string) => Promise<BackupEntry[]>;
       listAllBackups: () => Promise<BackupEntry[]>;
       restoreBackup: (instanceName: string, backupId: string) => Promise<{ ok: boolean; restoredFrom?: string; error?: string }>;
@@ -58,6 +83,7 @@ interface Window {
     };
     app: {
       onTrayNavigateInstance: (callback: (name: string) => void) => () => void;
+      copyText: (text: string) => Promise<void>;
     };
     settings: {
       get: () => Promise<AppSettings>;
@@ -122,6 +148,19 @@ interface ConfigTemplate {
   content: unknown;
   createdAt: number;
   updatedAt: number;
+}
+
+interface ImportBlockPreview {
+  key: string;
+  type: "object" | "array" | "string" | "number" | "boolean" | "null";
+  childCount: number;
+  size: number;
+  content: unknown;
+}
+
+interface ImportOpenclawPreview {
+  fileName: string;
+  blocks: ImportBlockPreview[];
 }
 
 type BackupOperation = "edit" | "sync" | "template-apply" | "delete-block" | "restore";

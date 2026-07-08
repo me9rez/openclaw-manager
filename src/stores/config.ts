@@ -103,8 +103,8 @@ export const useConfigStore = defineStore("config", () => {
     return await window.api.config.diffBlock(from, to);
   }
 
-  async function syncBlock(sourceName: string, blockKey: string, targets: string[]): Promise<SyncResult> {
-    return await window.api.config.syncBlock(sourceName, blockKey, targets);
+  async function syncBlock(sourceName: string, blockKey: string, targets: string[], mode: "overwrite" | "merge" = "overwrite"): Promise<SyncResult> {
+    return await window.api.config.syncBlock(sourceName, blockKey, targets, mode);
   }
 
   async function loadTemplates() {
@@ -146,8 +146,39 @@ export const useConfigStore = defineStore("config", () => {
     }
   }
 
-  async function applyTemplate(templateId: string, targets: string[]): Promise<SyncResult> {
-    return await window.api.config.applyTemplate(templateId, targets);
+  async function applyTemplate(templateId: string, targets: string[], mode: "overwrite" | "merge" = "overwrite"): Promise<SyncResult> {
+    return await window.api.config.applyTemplate(templateId, targets, mode);
+  }
+
+  async function copyTemplate(id: string): Promise<boolean> {
+    const t = templates.value.find((x) => x.id === id);
+    if (!t) return false;
+    try {
+      await window.api.app.copyText(JSON.stringify(t.content, null, 2));
+      return true;
+    } catch (err) {
+      error.value = String(err);
+      return false;
+    }
+  }
+
+  async function importOpenclawPreview(): Promise<{ canceled: boolean; preview?: ImportOpenclawPreview; error?: string }> {
+    try {
+      return await window.api.config.importOpenclawPreview();
+    } catch (err) {
+      return { canceled: false, error: String(err) };
+    }
+  }
+
+  async function importTemplates(inputs: { name: string; description?: string; blockKey: string; content: unknown }[]): Promise<ConfigTemplate[]> {
+    try {
+      const created = await window.api.config.importTemplates(inputs);
+      await loadTemplates();
+      return created;
+    } catch (err) {
+      error.value = String(err);
+      return [];
+    }
   }
 
   async function loadBackups(instanceName: string | null) {
@@ -235,6 +266,9 @@ export const useConfigStore = defineStore("config", () => {
     updateTemplate,
     deleteTemplate,
     applyTemplate,
+    copyTemplate,
+    importOpenclawPreview,
+    importTemplates,
     loadBackups,
     restoreBackup,
     deleteBackup,

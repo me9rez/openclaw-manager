@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { exec } from "child_process";
-import { ipcMain, BrowserWindow, shell, app } from "electron";
+import { ipcMain, BrowserWindow, shell, app, dialog, clipboard } from "electron";
 import {
   listAvailableVersions,
   installVersion,
@@ -182,8 +182,8 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("config:diffBlock", (_event, from: unknown, to: unknown) => configManager.diffBlock(from, to));
   ipcMain.handle("config:listInstances", () => configManager.listAllInstancesWithConfig());
-  ipcMain.handle("config:syncBlock", async (_event, sourceName: string, blockKey: string, targetNames: string[]) => {
-    return configManager.syncBlockToInstances(sourceName, blockKey, targetNames);
+  ipcMain.handle("config:syncBlock", async (_event, sourceName: string, blockKey: string, targetNames: string[], mode: "overwrite" | "merge") => {
+    return configManager.syncBlockToInstances(sourceName, blockKey, targetNames, mode);
   });
   ipcMain.handle("config:listTemplates", () => configManager.listTemplates());
   ipcMain.handle("config:createTemplate", (_event, input: { name: string; description?: string; blockKey: string; content: unknown }) =>
@@ -193,8 +193,29 @@ export function registerIpcHandlers(): void {
     configManager.updateTemplate(id, patch),
   );
   ipcMain.handle("config:deleteTemplate", (_event, id: string) => configManager.deleteTemplate(id));
-  ipcMain.handle("config:applyTemplate", async (_event, templateId: string, targets: string[]) => {
-    return configManager.applyTemplate(templateId, targets);
+  ipcMain.handle("config:applyTemplate", async (_event, templateId: string, targets: string[], mode: "overwrite" | "merge") => {
+    return configManager.applyTemplate(templateId, targets, mode);
+  });
+  ipcMain.handle("config:importTemplates", (_event, inputs: { name: string; description?: string; blockKey: string; content: unknown }[]) =>
+    configManager.importTemplates(inputs),
+  );
+  ipcMain.handle("config:importOpenclawPreview", async () => {
+    const opts: Electron.OpenDialogOptions = {
+      title: "选择 openclaw.json",
+      properties: ["openFile"],
+      filters: [{ name: "OpenClaw 配置", extensions: ["json"] }],
+    };
+    const win = BrowserWindow.getFocusedWindow();
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    const filePath = result.filePaths[0];
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      const preview = configManager.parseOpenclawJsonBlocks(content, path.basename(filePath));
+      return { canceled: false, preview };
+    } catch (err) {
+      return { canceled: false, error: (err as Error).message };
+    }
   });
   ipcMain.handle("config:listBackups", (_event, instanceName: string) => configManager.listBackups(instanceName));
   ipcMain.handle("config:listAllBackups", () => configManager.listAllBackups());
@@ -207,6 +228,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("config:getBackupRetention", () => configManager.getBackupRetentionSetting());
   ipcMain.handle("config:setBackupRetention", (_event, count: number | null) => {
     configManager.setBackupRetentionSetting(count);
+  });
+
+  // App
+  ipcMain.handle("app:copyText", (_event, text: string) => {
+    clipboard.writeText(text);
   });
 
   // Settings
