@@ -8,3 +8,5 @@ Thumbs.db
 resources/node/
 resources/node/.tmp/
 test-results/
+
+.mimocode
