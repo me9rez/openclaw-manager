@@ -3,19 +3,18 @@ productName: OpenClaw Manager
 electronVersion: "43.1.0"
 directories:
   output: release
-icon: build/icon.ico
+icon: assets/icon.ico
 win:
-  icon: build/icon.ico
+  icon: assets/icon.ico
   target:
     - 7z
   artifactName: ${productName}-${version}.${ext}
 extraResources:
   - from: ./resources/
-    to: resources/
+    to: .
     filter:
       - "**/*"
-  - from: ./build/
-    to: resources/
+  - from: ./assets/
+    to: .
     filter:
-      - "icon.ico"
-      - "icon-tray.png"
+      - "**/*"

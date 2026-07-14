@@ -113,7 +113,7 @@ export function resolveNpmBinary(): string {
   const dir = path.dirname(nodeExe);
   const candidates =
     process.platform === "win32"
-      ? [path.join(dir, "npm.cmd"), path.join(dir, "npm")]
+      ? [path.join(dir, "npm.cmd"), path.join(dir, "npm.exe"), path.join(dir, "npm")]
       : [path.join(dir, "npm"), path.join(dir, "npm.cmd")];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;

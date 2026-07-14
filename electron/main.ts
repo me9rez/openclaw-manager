@@ -26,14 +26,14 @@ if (!gotLock) {
 }
 
 function iconPath(): string {
-  const dev = path.join(__dirname, "..", "build", "icon.ico");
+  const dev = path.join(__dirname, "..", "assets", "icon.ico");
   const prod = path.join(process.resourcesPath, "icon.ico");
   if (fs.existsSync(dev)) return dev;
   return prod;
 }
 
 function trayIconPath(): string {
-  const dev = path.join(__dirname, "..", "build", "icon-tray.png");
+  const dev = path.join(__dirname, "..", "assets", "icon-tray.png");
   const prod = path.join(process.resourcesPath, "icon-tray.png");
   if (fs.existsSync(dev)) return dev;
   return prod;

@@ -107,7 +107,12 @@ export function createTray(win: BrowserWindow): Tray {
     tray.setContextMenu(buildMenu(win));
     return tray;
   }
-  const image = nativeImage.createFromPath(trayIconPath);
+  let image = nativeImage.createFromPath(trayIconPath);
+  if (image.isEmpty()) {
+    const fallback = trayIconPath.replace(/icon-tray\.png$/, "icon.ico");
+    console.warn(`[tray] icon not loaded from ${trayIconPath}, falling back to ${fallback}`);
+    image = nativeImage.createFromPath(fallback);
+  }
   tray = new Tray(image);
   tray.setToolTip("OpenClaw Manager");
   tray.setContextMenu(buildMenu(win));
