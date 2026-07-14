@@ -92,6 +92,9 @@ function formatDate(dateStr: string): string {
 .versions {
   max-width: 900px;
   margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   animation: fade-in 0.25s ease-out;
 }
 @keyframes fade-in {
@@ -167,7 +170,10 @@ function formatDate(dateStr: string): string {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
 }
 .version-table {
   width: 100%;
@@ -183,6 +189,9 @@ function formatDate(dateStr: string): string {
   letter-spacing: 0.5px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-accent);
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .version-table td {
   padding: 12px 16px;
