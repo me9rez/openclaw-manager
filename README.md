@@ -1,6 +1,6 @@
 # OpenClaw Manager
 
-> **📥 [下载 OpenClaw Manager 0.1.0](https://modelscope.cn/models/me9rez/code-lab/resolve/master/code-lab/openclaw-manager/OpenClaw%20Manager-0.1.0.7z)**
+> **📥 [下载 OpenClaw Manager 0.2.0](https://modelscope.cn/models/me9rez/code-lab/resolve/master/code-lab/openclaw-manager/OpenClaw%20Manager-0.2.0.7z)**
 >
 > [ModelScope](https://modelscope.cn/models/me9rez/code-lab) · [GitHub](https://github.com/me9rez/openclaw-manager)
 
@@ -74,7 +74,7 @@ npm run build
 npm run build:installer
 ```
 
-顺序:下载 Node 便携版(`setup:node`) → Vite 构建(`build`) → electron-builder 打包,产出 `release/OpenClaw Manager-0.1.0.7z`。
+顺序:下载 Node 便携版(`setup:node`) → Vite 构建(`build`) → electron-builder 打包,产出 `release/OpenClaw Manager-0.2.0.7z`。
 
 ### 一行:打包 → 上传
 
@@ -142,7 +142,7 @@ npm 二进制解析:从 resolved Node 所在目录派生 `npm.cmd`(Windows) / `n
 |---|---|
 | `npm run dev` | Vite + Electron 开发模式(主进程 HMR) |
 | `npm run build` | 构建渲染层与主进程(`dist/` + `dist-electron/`) |
-| `npm run typecheck` | `vue-tsc --noEmit` |
+| `npm run typecheck` | `vue-tsc -b` |
 | `npm run setup:node` | 下载 Node.js 便携版到 `resources/node/` |
 | `npm run build:installer` | `setup:node` → `build` → electron-builder(产出 `.7z`) |
 | `npm run release:all` | `build:installer` → 上传到 ModelScope |
