@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("api", {
     openWebUI: (port: number, token: string) => ipcRenderer.invoke("instances:open-webui", port, token),
     openTerminal: (instanceName: string) => ipcRenderer.invoke("instances:open-terminal", instanceName),
     openFolder: (instanceName: string) => ipcRenderer.invoke("instances:open-folder", instanceName),
+    openInVSCode: (instanceName: string) => ipcRenderer.invoke("instances:open-vscode", instanceName),
     onStatusChanged: (callback: (data: { name: string; status: string; message?: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { name: string; status: string; message?: string }) =>
         callback(data);

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { ipcMain, BrowserWindow, shell, app, dialog, clipboard } from "electron";
 import {
   listAvailableVersions,
@@ -136,6 +136,46 @@ export function registerIpcHandlers(): void {
     if (!record) throw new Error(`Instance "${instanceName}" not found`);
     const dir = getInstanceDir(instanceName);
     await shell.openPath(dir);
+  });
+
+  ipcMain.handle("instances:open-vscode", async (_event, instanceName: string) => {
+    const record = getInstance(instanceName);
+    if (!record) throw new Error(`Instance "${instanceName}" not found`);
+    const instanceDir = getInstanceDir(instanceName);
+    const workspaceDir = path.join(instanceDir, "workspace");
+    const target = fs.existsSync(workspaceDir) ? workspaceDir : instanceDir;
+
+    const isWin = process.platform === "win32";
+    const binName = isWin ? "code.cmd" : "code";
+
+    const opened = await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+      };
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(binName, [target], {
+          stdio: "ignore",
+          windowsHide: true,
+          detached: !isWin,
+          shell: isWin,
+        });
+      } catch {
+        finish(false);
+        return;
+      }
+      child.on("error", () => finish(false));
+      child.once("spawn", () => finish(true));
+      setTimeout(() => finish(true), 150);
+      child.unref();
+    });
+    if (opened) return { ok: true };
+
+    const errMsg = await shell.openPath(target);
+    return errMsg ? { ok: false, error: errMsg } : { ok: true };
   });
 
   // Diagnostic: test spawning a process

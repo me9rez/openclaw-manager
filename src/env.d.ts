@@ -52,6 +52,7 @@ interface Window {
       openWebUI: (port: number, token: string) => Promise<void>;
       openTerminal: (instanceName: string) => Promise<void>;
       openFolder: (instanceName: string) => Promise<void>;
+      openInVSCode: (instanceName: string) => Promise<{ ok: boolean; error?: string }>;
       onStatusChanged: (callback: (data: { name: string; status: InstanceStatus; message?: string }) => void) => () => void;
     debug: {
       spawn: (command: string, args?: string[]) => Promise<{ ok: boolean; output?: string; error?: string; stderr?: string; code?: number }>;

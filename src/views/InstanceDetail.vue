@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import VsToast from "@vuesimple/vs-toast";
 import { useInstancesStore } from "../stores/instances";
 import LogViewer from "../components/LogViewer.vue";
 import {
@@ -14,6 +15,7 @@ import {
   Trash2,
   Loader2,
   FolderOpen,
+  Code2,
 } from "@lucide/vue";
 
 const props = defineProps<{
@@ -73,6 +75,21 @@ async function openFolder() {
   } catch (err) {
     console.error("[open-folder] failed:", err);
   }
+}
+
+async function openInVSCode() {
+  if (!instance.value) return;
+  try {
+    const res = await window.api.instances.openInVSCode(instance.value.name);
+    if (!res.ok) showToast(res.error ?? "打开失败", "err");
+  } catch (err) {
+    showToast((err as Error)?.message ?? "打开失败", "err");
+  }
+}
+
+function showToast(msg: string, kind: "ok" | "err" | "info" = "err") {
+  const variant = kind === "ok" ? "success" : kind === "err" ? "error" : "info";
+  VsToast.show({ message: msg, variant });
 }
 
 function statusColor(status: string): string {
@@ -146,7 +163,7 @@ const statusLabel: Record<string, string> = {
         </div>
 
         <div class="actions-section">
-          <div class="action-row">
+          <div class="action-row is-wrap">
             <button
               class="btn btn-secondary"
               :disabled="loadingMap['terminal']"
@@ -164,6 +181,15 @@ const statusLabel: Record<string, string> = {
               <Loader2 v-if="loadingMap['folder']" class="spin" />
               <FolderOpen v-else :size="14" />
               打开文件夹
+            </button>
+            <button
+              class="btn btn-secondary"
+              :disabled="loadingMap['vscode']"
+              @click="withLoading('vscode', openInVSCode)"
+            >
+              <Loader2 v-if="loadingMap['vscode']" class="spin" />
+              <Code2 v-else :size="14" />
+              用 VS Code 打开
             </button>
           </div>
 
@@ -375,6 +401,9 @@ const statusLabel: Record<string, string> = {
 .action-row {
   display: flex;
   gap: 8px;
+}
+.action-row.is-wrap {
+  flex-wrap: wrap;
 }
 .action-row-danger {
   margin-top: 6px;
