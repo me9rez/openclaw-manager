@@ -1,6 +1,21 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
+/**
+ * Normalize an error coming out of `ipcRenderer.invoke` so the UI sees a
+ * human-readable message rather than the full Electron wrapper. See
+ * `src/stores/versions.ts` for the same helper.
+ */
+function normalizeError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message.replace(
+      /^Error invoking remote method '[^']+':\s*Error:\s*/,
+      "",
+    );
+  }
+  return String(err);
+}
+
 export interface InstanceInfo {
   name: string;
   version: string;
@@ -25,19 +40,20 @@ export const useInstancesStore = defineStore("instances", () => {
     try {
       instances.value = await window.api.instances.list();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     } finally {
       loading.value = false;
     }
   }
 
-  async function create(params: { name: string; version: string; port?: number }) {
+  async function create(params: { name: string; version: string; port?: number }): Promise<CreateInstanceResult> {
     error.value = null;
     try {
-      await window.api.instances.create(params);
+      const result = await window.api.instances.create(params);
       await fetchList();
+      return result;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       throw err;
     }
   }
@@ -46,7 +62,7 @@ export const useInstancesStore = defineStore("instances", () => {
     try {
       await window.api.instances.start(name);
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -54,7 +70,7 @@ export const useInstancesStore = defineStore("instances", () => {
     try {
       await window.api.instances.stop(name);
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -62,7 +78,16 @@ export const useInstancesStore = defineStore("instances", () => {
     try {
       await window.api.instances.restart(name);
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
+    }
+  }
+
+  async function confirmRemove(name: string, isRunning: boolean): Promise<boolean> {
+    try {
+      return await window.api.instances.confirmRemove(name, isRunning);
+    } catch (err) {
+      error.value = normalizeError(err);
+      return false;
     }
   }
 
@@ -72,7 +97,28 @@ export const useInstancesStore = defineStore("instances", () => {
       await window.api.instances.remove(name);
       await fetchList();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
+    }
+  }
+
+  async function updatePort(name: string, port: number): Promise<{ port: number }> {
+    error.value = null;
+    try {
+      const result = await window.api.instances.updatePort(name, port);
+      await fetchList();
+      return result;
+    } catch (err) {
+      error.value = normalizeError(err);
+      throw err;
+    }
+  }
+
+  async function checkConfigConsistency(name: string): Promise<ConfigConsistencyResult> {
+    try {
+      return await window.api.instances.checkConfigConsistency(name);
+    } catch (err) {
+      error.value = normalizeError(err);
+      throw err;
     }
   }
 
@@ -81,7 +127,7 @@ export const useInstancesStore = defineStore("instances", () => {
     try {
       await window.api.instances.forceReconnect(name);
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -90,7 +136,7 @@ export const useInstancesStore = defineStore("instances", () => {
     try {
       await window.api.instances.stopReconnect(name);
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -117,8 +163,11 @@ export const useInstancesStore = defineStore("instances", () => {
     stop,
     restart,
     remove,
+    updatePort,
+    checkConfigConsistency,
     forceReconnect,
     stopReconnect,
+    confirmRemove,
     setupListeners,
   };
 });

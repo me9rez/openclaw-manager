@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import VsToast from "@vuesimple/vs-toast";
 import { useInstancesStore } from "../stores/instances";
 import LogViewer from "../components/LogViewer.vue";
@@ -16,6 +16,9 @@ import {
   Loader2,
   FolderOpen,
   Code2,
+  Pencil,
+  Check,
+  X as XIcon,
 } from "@lucide/vue";
 
 const props = defineProps<{
@@ -53,6 +56,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   cleanupStatus?.();
+  if (portCheckTimer) clearTimeout(portCheckTimer);
 });
 
 function openWebUI(port: number, token: string) {
@@ -115,6 +119,121 @@ const statusLabel: Record<string, string> = {
   error: "错误",
   crashed: "崩溃",
 };
+
+// ----- Port edit -----
+// Only stopped-ish states are editable; running/starting/reconnecting would
+// leave the in-memory gateway client pointing at the old port.
+const PORT_EDITABLE_STATES = new Set(["installed", "stopped", "error", "crashed"]);
+const isPortEditable = computed(
+  () => !!instance.value && PORT_EDITABLE_STATES.has(instance.value.status),
+);
+
+const portEditing = ref(false);
+const portDraft = ref<string>("");
+const portCheck = ref<"idle" | "checking" | "available" | "in-use" | "invalid">("idle");
+const portCheckDetail = ref<string>("");
+const portSaving = ref(false);
+let portCheckSeq = 0;
+let portCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ----- Config consistency check -----
+const consistency = ref<ConfigConsistencyResult | null>(null);
+const consistencyLoading = ref(false);
+let consistencySeq = 0;
+
+async function runConsistencyCheck() {
+  if (!instance.value) return;
+  const seq = ++consistencySeq;
+  consistencyLoading.value = true;
+  try {
+    const result = await store.checkConfigConsistency(instance.value.name);
+    if (seq !== consistencySeq) return; // outdated
+    consistency.value = result;
+  } catch (err) {
+    if (seq !== consistencySeq) return;
+    showToast((err as Error).message || "检查失败", "err");
+  } finally {
+    if (seq === consistencySeq) consistencyLoading.value = false;
+  }
+}
+
+function startPortEdit() {
+  if (!isPortEditable.value || !instance.value) return;
+  portDraft.value = String(instance.value.port);
+  portEditing.value = true;
+  portCheck.value = "idle";
+  portCheckDetail.value = "";
+  runPortCheck();
+}
+
+function cancelPortEdit() {
+  portEditing.value = false;
+  portDraft.value = "";
+  portCheck.value = "idle";
+  portCheckDetail.value = "";
+  if (portCheckTimer) {
+    clearTimeout(portCheckTimer);
+    portCheckTimer = null;
+  }
+}
+
+function runPortCheck() {
+  if (portCheckTimer) clearTimeout(portCheckTimer);
+  const port = Number.parseInt(portDraft.value, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    portCheck.value = "invalid";
+    portCheckDetail.value = "端口必须是 1-65535 之间的整数";
+    return;
+  }
+  portCheck.value = "checking";
+  portCheckDetail.value = "检测中...";
+  const seq = ++portCheckSeq;
+  portCheckTimer = setTimeout(async () => {
+    try {
+      const res = await window.api.instances.checkPort(port);
+      if (seq !== portCheckSeq) return; // outdated by a newer check
+      portCheck.value = res.available ? "available" : "in-use";
+      portCheckDetail.value = res.available
+        ? `端口 ${res.port} 可用`
+        : `端口 ${res.port} 当前被其他进程占用`;
+    } catch (err) {
+      if (seq !== portCheckSeq) return;
+      portCheck.value = "invalid";
+      portCheckDetail.value = `检测失败: ${(err as Error).message}`;
+    }
+  }, 300);
+}
+
+// Re-check whenever the draft text changes.
+watch(portDraft, () => {
+  if (portEditing.value) runPortCheck();
+});
+
+async function savePort() {
+  if (!instance.value) return;
+  const port = Number.parseInt(portDraft.value, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    showToast("端口必须是 1-65535 之间的整数", "err");
+    return;
+  }
+  if (portCheck.value === "in-use") {
+    showToast(`端口 ${port} 已被占用,请换一个`, "err");
+    return;
+  }
+  portSaving.value = true;
+  try {
+    await store.updatePort(instance.value.name, port);
+    showToast(`端口已更新为 ${port}`, "ok");
+    portEditing.value = false;
+    // 端口变了之后,旧的检测结果已经过期,自动重跑一次
+    consistency.value = null;
+    runConsistencyCheck();
+  } catch (err) {
+    showToast((err as Error).message || "修改端口失败", "err");
+  } finally {
+    portSaving.value = false;
+  }
+}
 </script>
 
 <template>
@@ -140,13 +259,84 @@ const statusLabel: Record<string, string> = {
             <span class="label">版本</span>
             <span class="value">{{ instance.version }}</span>
           </div>
-          <div class="info-row">
+          <div class="info-row info-row-port">
             <span class="label">端口</span>
-            <span class="value">{{ instance.port }}</span>
+            <div v-if="!portEditing" class="port-display">
+              <span class="value">{{ instance.port }}</span>
+              <button
+                v-if="isPortEditable"
+                class="icon-btn"
+                title="修改端口"
+                @click="startPortEdit"
+              >
+                <Pencil :size="12" />
+              </button>
+              <span v-else class="locked-hint" title="运行中无法修改端口,请先停止实例">运行中不可改</span>
+            </div>
+            <div v-else class="port-edit">
+              <input
+                v-model="portDraft"
+                type="number"
+                min="1"
+                max="65535"
+                class="input port-input"
+                :disabled="portSaving"
+                @keyup.enter="savePort"
+                @keyup.escape="cancelPortEdit"
+              />
+              <span
+                class="port-status-dot"
+                :class="`port-status-${portCheck}`"
+                :title="portCheckDetail"
+              ></span>
+              <button
+                class="icon-btn icon-btn-primary"
+                :disabled="portSaving || portCheck === 'invalid' || portCheck === 'in-use' || portCheck === 'checking'"
+                title="保存"
+                @click="savePort"
+              >
+                <Loader2 v-if="portSaving" :size="12" class="spin" />
+                <Check v-else :size="12" />
+              </button>
+              <button
+                class="icon-btn"
+                :disabled="portSaving"
+                title="取消"
+                @click="cancelPortEdit"
+              >
+                <XIcon :size="12" />
+              </button>
+            </div>
           </div>
+          <p v-if="portEditing" class="port-detail">{{ portCheckDetail }}</p>
           <div class="info-row">
             <span class="label">Token</span>
             <span class="value mono">{{ instance.token.substring(0, 12) }}...</span>
+          </div>
+          <div class="info-row">
+            <span class="label">配置一致性</span>
+            <button
+              class="check-btn"
+              :disabled="consistencyLoading"
+              @click="runConsistencyCheck"
+            >
+              <Loader2 v-if="consistencyLoading" :size="12" class="spin" />
+              <span v-else>检查</span>
+            </button>
+          </div>
+          <div v-if="consistency" class="consistency-card" :class="consistency.consistent ? 'is-ok' : 'is-bad'">
+            <div class="consistency-head">
+              <span>{{ consistency.consistent ? '✅ 一致' : '⚠️ 不一致' }}</span>
+              <button class="consistency-close" @click="consistency = null">×</button>
+            </div>
+            <div class="consistency-body">
+              <div><span class="k">store:</span> <code>{{ consistency.storePort ?? '—' }}</code></div>
+              <div><span class="k">config:</span> <code>{{ consistency.configPort ?? '—' }}</code></div>
+              <div class="consistency-path">{{ consistency.configPath }}</div>
+              <ul v-if="consistency.issues.length" class="consistency-issues">
+                <li v-for="(it, i) in consistency.issues" :key="i">{{ it.message }}</li>
+              </ul>
+            </div>
           </div>
           <div v-if="instance.health?.version" class="info-row">
             <span class="label">Gateway 版本</span>
@@ -266,7 +456,13 @@ const statusLabel: Record<string, string> = {
             <button
               class="btn btn-danger"
               :disabled="loadingMap['remove']"
-              @click="withLoading('remove', async () => { await store.remove(instance!.name); emit('back'); })"
+              @click="withLoading('remove', async () => {
+                const isRunning = instance!.status === 'running' || instance!.status === 'starting' || instance!.status === 'reconnecting';
+                const ok = await store.confirmRemove(instance!.name, isRunning);
+                if (!ok) return;
+                await store.remove(instance!.name);
+                emit('back');
+              })"
             >
               <Loader2 v-if="loadingMap['remove']" class="spin" />
               <Trash2 v-else :size="14" />
@@ -383,6 +579,192 @@ const statusLabel: Record<string, string> = {
 }
 .error-text {
   color: var(--accent);
+}
+
+/* Inline port editor */
+.info-row-port .value {
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+}
+.port-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.port-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: flex-end;
+}
+.port-input {
+  width: 100px;
+  padding: 4px 8px;
+  font-size: 13px;
+  text-align: right;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+}
+/* Hide native spinners */
+.port-input::-webkit-outer-spin-button,
+.port-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.port-input[type="number"] {
+  -moz-appearance: textfield;
+}
+.port-detail {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  margin-top: -4px;
+  margin-bottom: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.port-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+  transition: background 0.15s;
+}
+.port-status-checking { background: var(--muted); animation: port-pulse 1s ease-in-out infinite; }
+.port-status-available { background: var(--ok); }
+.port-status-in-use    { background: var(--danger); }
+.port-status-invalid   { background: var(--warn); }
+.port-status-idle      { background: var(--muted); }
+@keyframes port-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.icon-btn:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.icon-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--primary-foreground);
+}
+.icon-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.locked-hint {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+/* Consistency check button + result card */
+.check-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 12px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.check-btn:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+.check-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.consistency-card {
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  margin-top: 4px;
+}
+.consistency-card.is-ok  { border-color: var(--ok); }
+.consistency-card.is-bad { border-color: var(--warn, #f59e0b); }
+.consistency-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.consistency-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.consistency-close:hover { color: var(--text); }
+.consistency-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+  word-break: break-all;
+}
+.consistency-body .k {
+  color: var(--muted);
+  font-size: 11px;
+  margin-right: 2px;
+}
+.consistency-body code {
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  background: var(--card);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.consistency-path {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  margin-top: 2px;
+  word-break: break-all;
+}
+.consistency-issues {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.consistency-issues li {
+  font-size: 11px;
+  color: var(--danger);
+  padding-left: 8px;
+  border-left: 2px solid var(--warn, #f59e0b);
 }
 .status-msg-box {
   display: flex;

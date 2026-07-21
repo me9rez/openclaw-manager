@@ -199,7 +199,19 @@ function formatDate(dateStr: string): string {
   border-bottom: 1px solid var(--border);
 }
 .version-table tr:last-child td { border-bottom: none; }
-.version-table tr:hover td { background: var(--bg-hover); }
+
+/* Row hover: tint only the *non-button* cells so the action button keeps
+ * its own (red) border + background and doesn't get washed out. */
+.version-table tbody tr:hover .version-cell,
+.version-table tbody tr:hover .date-cell {
+  background: var(--bg-hover);
+}
+/* When the row is hovered, slightly emphasize the action button so the
+ * user gets a clear affordance. */
+.version-table tbody tr:hover .actions-cell .btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
 .version-cell {
   font-weight: 600;
   color: var(--text-strong);

@@ -13,9 +13,9 @@ import {
   updateInstance as storeUpdateInstance,
   getManagerDir,
 } from "./store";
+import { isPortAvailable, findAvailablePort } from "./port-utils";
 import { getOpenClawEntry, resolveNodeBinary, installVersion } from "./version-manager";
 import { GatewayClient } from "./gateway-client";
-import { findAvailablePort, isPortAvailable } from "./port-utils";
 import { loadOrCreateDeviceIdentity } from "./device-identity";
 import { EventEmitter } from "events";
 
@@ -61,41 +61,43 @@ function emitLog(name: string, line: string): void {
   emitter.emit("log", { name, line });
 }
 
-function initStateDir(instanceDir: string, token: string): void {
+function initStateDir(instanceDir: string, token: string, port: number): void {
   fs.mkdirSync(instanceDir, { recursive: true });
   const configPath = path.join(instanceDir, "openclaw.json");
 
-  let config: Record<string, unknown>;
+  // If the file already exists (e.g. the user ran `openclaw onboard`
+  // before this manager ever saw the instance), preserve it. Only patch
+  // the port and fill in missing defaults for `gateway` / `agents` — do
+  // NOT touch anything else the wizard or the user wrote.
   if (fs.existsSync(configPath)) {
+    let parsed: Record<string, unknown>;
     try {
-      config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     } catch {
-      config = {};
+      parsed = {};
     }
-  } else {
-    config = {};
+    if (!parsed.gateway || typeof parsed.gateway !== "object") parsed.gateway = {};
+    const gw = parsed.gateway as Record<string, unknown>;
+    if (!gw.mode) gw.mode = "local";
+    if (typeof gw.port !== "number") gw.port = port;
+    if (!gw.auth || typeof gw.auth !== "object") gw.auth = { token };
+    const auth = gw.auth as Record<string, unknown>;
+    if (!auth.token) auth.token = token;
+
+    if (!parsed.agents || typeof parsed.agents !== "object") parsed.agents = {};
+    const agents = parsed.agents as Record<string, unknown>;
+    if (!agents.defaults || typeof agents.defaults !== "object") {
+      agents.defaults = { workspace: "default" };
+    }
+    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+    return;
   }
 
-  // Ensure gateway section exists with mode and auth
-  if (!config.gateway || typeof config.gateway !== "object") {
-    config.gateway = {};
-  }
-  const gw = config.gateway as Record<string, unknown>;
-  if (!gw.mode) gw.mode = "local";
-  if (!gw.auth || typeof gw.auth !== "object") {
-    gw.auth = { token };
-  }
-  const auth = gw.auth as Record<string, unknown>;
-  if (!auth.token) auth.token = token;
-
-  if (!config.agents || typeof config.agents !== "object") {
-    config.agents = {};
-  }
-  const agents = config.agents as Record<string, unknown>;
-  if (!agents.defaults || typeof agents.defaults !== "object") {
-    agents.defaults = { workspace: "default" };
-  }
-
+  // Brand new file: emit the minimal skeleton.
+  const config = {
+    gateway: { mode: "local", port, auth: { token } },
+    agents: { defaults: { workspace: "default" } },
+  };
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
 }
 
@@ -155,7 +157,21 @@ async function startGatewayClient(inst: ManagedInstance): Promise<void> {
 
 const INSTANCE_NAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5][a-zA-Z0-9_\-]*$/;
 
-export async function createInstance(name: string, version: string, port?: number): Promise<void> {
+export interface CreateInstanceResult {
+  /** The port actually written to the instance record. */
+  port: number;
+  /** The port the caller asked for, if any. */
+  requestedPort: number | null;
+  /** Ports that were probed and skipped (in use or reserved) before finding
+   *  a free one. Useful for the UI to show "要的是 X,实际落到 Y"。 */
+  skipped: number[];
+}
+
+export async function createInstance(
+  name: string,
+  version: string,
+  port?: number,
+): Promise<CreateInstanceResult> {
   if (!INSTANCE_NAME_RE.test(name)) {
     throw new Error(
       `实例名 "${name}" 不合法：仅允许字母、数字、下划线、连字符，且不能以连字符开头`
@@ -186,7 +202,7 @@ export async function createInstance(name: string, version: string, port?: numbe
     console.warn(note);
   }
 
-  initStateDir(instanceDir, token);
+  initStateDir(instanceDir, token, instancePort);
 
   storeAddInstance({ name, version, port: instancePort, token });
 
@@ -206,6 +222,12 @@ export async function createInstance(name: string, version: string, port?: numbe
   };
 
   instances.set(name, inst);
+
+  return {
+    port: instancePort,
+    requestedPort: port ?? null,
+    skipped,
+  };
 }
 
 export async function startInstance(name: string): Promise<void> {
@@ -470,6 +492,120 @@ export function stopReconnectInstance(name: string): void {
   emitStatus(name, "error", inst.statusMessage);
 }
 
+/**
+ * Update the `gateway.port` field in an instance's `openclaw.json` without
+ * disturbing any other fields the OpenClaw wizard or the user may have
+ * written. The file is read, the port is patched, and the file is written
+ * back. A `.bak` copy is kept alongside so a botched write can be rolled
+ * back manually.
+ *
+ * Returns the parsed JSON if successful, or `null` if the file does not
+ * exist (caller can decide whether to treat that as an error or a no-op).
+ */
+function patchOpenclawJsonPort(instanceDir: string, port: number): { previous: number | null } {
+  const configPath = path.join(instanceDir, "openclaw.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`实例配置文件不存在: ${configPath}`);
+  }
+  const raw = fs.readFileSync(configPath, "utf-8");
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`无法解析 ${configPath}: ${(err as Error).message}`);
+  }
+  if (!parsed.gateway || typeof parsed.gateway !== "object") {
+    parsed.gateway = {};
+  }
+  const gw = parsed.gateway as Record<string, unknown>;
+  const previous = typeof gw.port === "number" ? gw.port : null;
+  gw.port = port;
+
+  // Write a side-by-side .bak of the previous contents so a botched update
+  // can be reverted by hand. Only when we're actually changing the value.
+  if (previous !== port) {
+    try {
+      fs.writeFileSync(`${configPath}.bak`, raw, "utf-8");
+    } catch {
+      // best-effort; do not fail the update just because the backup failed
+    }
+  }
+
+  fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+  return { previous };
+}
+
+/**
+ * Update the port of an existing instance.
+ *
+ * Persists the change to BOTH the manager JSON store AND the instance's
+ * `openclaw.json` (under `gateway.port`). Refuses to mutate a running
+ * gateway: changing the port while the gateway child process is alive
+ * would leave the spawned process, the in-memory `ManagedInstance`, and
+ * the persisted store pointing at different ports, and the in-memory
+ * `GatewayClient` would still be connected to the old one. Callers
+ * should stop the instance first.
+ */
+export async function updateInstancePort(name: string, port: number): Promise<{ port: number }> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`端口 "${port}" 不合法：必须是 1-65535 之间的整数`);
+  }
+  const record = storeGetInstance(name);
+  if (!record) throw new Error(`Instance "${name}" not found`);
+
+  const inst = instances.get(name);
+  // If the instance is in memory and currently has a live process, refuse.
+  if (inst && (inst.status === "running" || inst.status === "starting" || inst.status === "reconnecting")) {
+    throw new Error(`实例 "${name}" 正在运行中,请先停止后再修改端口`);
+  }
+
+  if (port === record.port) {
+    return { port }; // no-op
+  }
+
+  // Reserved by another managed instance?
+  const otherPorts = new Set(
+    storeGetInstances()
+      .filter((i) => i.name !== name)
+      .map((i) => i.port),
+  );
+  if (otherPorts.has(port)) {
+    throw new Error(`端口 ${port} 已被其他实例占用`);
+  }
+
+  // Currently in use by the OS (e.g. another process bound to it)?
+  const free = await isPortAvailable(port);
+  if (!free) {
+    throw new Error(`端口 ${port} 已被其他进程占用`);
+  }
+
+  // Persist the manager-side mirror first; if the openclaw.json write
+  // fails, roll the store back so we don't end up with two truths.
+  const instanceDir = getInstanceDir(name);
+  let configPatched = false;
+  try {
+    patchOpenclawJsonPort(instanceDir, port);
+    configPatched = true;
+    storeUpdateInstance(name, { port });
+  } catch (err) {
+    if (configPatched) {
+      // openclaw.json was patched but the store wasn't — best-effort revert
+      // so the two stay in sync.
+      try {
+        const bakPath = path.join(instanceDir, "openclaw.json.bak");
+        if (fs.existsSync(bakPath)) {
+          fs.copyFileSync(bakPath, path.join(instanceDir, "openclaw.json"));
+        }
+      } catch { /* swallow — we want the original error to surface */ }
+    }
+    throw err;
+  }
+  if (inst) {
+    inst.port = port;
+  }
+  return { port };
+}
+
 export function getInstanceStatus(name: string): ManagedInstance | undefined {
   return instances.get(name);
 }
@@ -541,4 +677,91 @@ export function onStatus(callback: (data: { name: string; status: InstanceStatus
 export function onLog(callback: (data: { name: string; line: string }) => void): () => void {
   emitter.on("log", callback);
   return () => emitter.off("log", callback);
+}
+
+// ---------------------------------------------------------------------------
+// Config consistency check
+// ---------------------------------------------------------------------------
+
+export interface ConfigConsistencyIssue {
+  /** "port-mismatch" | "missing-config" | "missing-port" | "missing-store". */
+  code: string;
+  message: string;
+}
+
+export interface ConfigConsistencyResult {
+  name: string;
+  configPath: string;
+  /** Port recorded in the manager store (manager-config.json). */
+  storePort: number | null;
+  /** Port recorded in <instanceDir>/openclaw.json under `gateway.port`. */
+  configPort: number | null;
+  /** True when both ports are present and equal. */
+  consistent: boolean;
+  issues: ConfigConsistencyIssue[];
+}
+
+/**
+ * Compare the port recorded for `name` in the manager's JSON store with the
+ * port recorded in the instance's `openclaw.json`. Both should agree; if they
+ * don't, the gateway will spawn on the wrong port.
+ */
+export async function checkConfigConsistency(name: string): Promise<ConfigConsistencyResult> {
+  const record = storeGetInstance(name);
+  const instanceDir = getInstanceDir(name);
+  const configPath = path.join(instanceDir, "openclaw.json");
+
+  const result: ConfigConsistencyResult = {
+    name,
+    configPath,
+    storePort: record?.port ?? null,
+    configPort: null,
+    consistent: false,
+    issues: [],
+  };
+
+  if (!record) {
+    result.issues.push({ code: "missing-store", message: `实例 "${name}" 不在 manager 存储中` });
+  }
+
+  if (!fs.existsSync(configPath)) {
+    result.issues.push({ code: "missing-config", message: `实例配置文件不存在: ${configPath}` });
+    result.consistent = result.issues.length === 0;
+    return result;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  } catch (err) {
+    result.issues.push({
+      code: "missing-config",
+      message: `无法解析 ${configPath}: ${(err as Error).message}`,
+    });
+    return result;
+  }
+
+  const configObj = parsed as Record<string, unknown>;
+  const gw = (configObj.gateway && typeof configObj.gateway === "object"
+    ? (configObj.gateway as Record<string, unknown>)
+    : null);
+  const rawPort = gw?.port;
+  if (typeof rawPort === "number" && Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536) {
+    result.configPort = rawPort;
+  } else {
+    result.issues.push({
+      code: "missing-port",
+      message: `${configPath} 中没有 gateway.port 字段`,
+    });
+  }
+
+  if (result.storePort !== null && result.configPort !== null && result.storePort !== result.configPort) {
+    result.issues.push({
+      code: "port-mismatch",
+      message: `端口不一致: store=${result.storePort}, openclaw.json=${result.configPort}`,
+    });
+  }
+
+  result.consistent = result.issues.length === 0;
+  return result;
 }

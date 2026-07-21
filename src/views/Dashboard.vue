@@ -43,6 +43,15 @@ onUnmounted(() => {
   cleanupStatus?.();
 });
 
+async function handleRemove(name: string) {
+  const inst = store.instances.find((i) => i.name === name);
+  if (!inst) return;
+  const isRunning = inst.status === "running" || inst.status === "starting" || inst.status === "reconnecting";
+  const ok = await store.confirmRemove(name, isRunning);
+  if (!ok) return;
+  await store.remove(name);
+}
+
 async function handleCreate() {
   createError.value = "";
   const err = validateInstanceName(createName.value.trim());
@@ -60,6 +69,8 @@ async function handleCreate() {
     createName.value = "";
     createVersion.value = "";
     showCreate.value = false;
+  } catch (err) {
+    createError.value = (err as Error).message;
   } finally {
     creating.value = false;
   }
@@ -114,7 +125,7 @@ function statusCount(status: string): number {
         @start="store.start"
         @stop="store.stop"
         @restart="store.restart"
-        @remove="store.remove"
+        @remove="handleRemove"
         @select="emit('select', $event)"
       />
     </div>

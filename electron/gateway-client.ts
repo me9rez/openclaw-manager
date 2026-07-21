@@ -94,25 +94,25 @@ export class GatewayClient {
     this.cancelReconnectTimer();
     this.cleanupTimers();
     if (this.ws) {
-      try {
-        this.ws.close();
-      } catch {
-        // ignore
-      }
+      const socket = this.ws;
       this.ws = null;
+      // 使用 safelyDestroySocket 而非 close():对处于 CONNECTING 状态的
+      // socket,close() 仍会在下一个 tick 异步抛出 "closed before the
+      // connection was established",同样需要兜底。
+      this.safelyDestroySocket(socket);
     }
     this.terminateProbeSocket();
     this.rejectAllPending("Gateway disconnected");
   }
 
   simulateDisconnect(): void {
-    // Test/diagnostic helper: tear down the current socket as if it dropped,
-    // but do NOT set `closed`, so the reconnect logic kicks in.
+    // 测试/诊断用:模拟一次"网线被拔"的效果——拆掉当前 socket,
+    // 但**不**置 closed,让重连逻辑接管。
     if (this.ws) {
       try {
         this.ws.terminate();
       } catch {
-        // ignore
+        /* 吞掉 — safelyDestroySocket 内部已经处理过 */
       }
       this.ws = null;
     }
@@ -147,25 +147,50 @@ export class GatewayClient {
 
   private terminateProbeSocket(): void {
     if (this.probeSocket) {
-      try {
-        this.probeSocket.removeAllListeners();
-        this.probeSocket.terminate();
-      } catch {
-        // ignore
-      }
+      const socket = this.probeSocket;
       this.probeSocket = null;
+      this.safelyDestroySocket(socket);
+    }
+  }
+
+  /**
+   * 强制销毁一个 WebSocket,不让它的 "closed before the connection was
+   * established" 错误冒到 Node 的 `uncaughtException`。
+   *
+   * 为什么需要这样:
+   *   - 对还处于 `CONNECTING` 状态的 socket 调 `WebSocket.terminate()`,
+   *     ws 库会在下一个 event-loop tick 异步抛出一个 `Error`(它用
+   *     `process.nextTick` 在强制 close 之后 emit 出来)。如果没有
+   *     `'error'` 监听器在接,这个 error 就会逃逸到 `process`,触发
+   *     Electron 的 "A JavaScript error occurred in the main process" 对话框。
+   *   - 对 `CONNECTING` 状态的 socket 调 `WebSocket.close()`(优雅关闭)
+   *     也有同样的问题。
+   *   - 如果在 terminate 之前先 `removeAllListeners()`,那连让一个
+   *     `error` 监听器去接住 throw 的机会都没了。
+   *
+   * 所以正确顺序是:先 attach 一个 no-op `error` 监听器 → 再
+   * `removeAllListeners()` → 再 `terminate()`。这样 throw 就被
+   * 我们的 no-op 监听器接住并丢弃。
+   */
+  private safelyDestroySocket(socket: WebSocket): void {
+    try {
+      socket.on("error", () => {
+        // 故意留空:用来吞掉 ws 库在强制 terminate 一个 CONNECTING 中的
+        // socket 时抛出的 "WebSocket was closed before the connection
+        // was established"。
+      });
+      socket.removeAllListeners();
+      socket.terminate();
+    } catch {
+      // 同步 throw(例如对已经销毁的 socket 调 .terminate())也安全忽略。
     }
   }
 
   private terminateCurrentSocket(): void {
     if (this.ws) {
-      try {
-        this.ws.removeAllListeners();
-        this.ws.terminate();
-      } catch {
-        // ignore
-      }
+      const socket = this.ws;
       this.ws = null;
+      this.safelyDestroySocket(socket);
     }
     this.terminateProbeSocket();
   }
@@ -243,7 +268,7 @@ export class GatewayClient {
 
     socket.on("error", (err) => {
       this.lastError = err.message;
-      // 'error' is followed by 'close' which handles reconnect.
+      // 'error' 后面会跟一个 'close' 事件,真正的重连逻辑在那边处理。
     });
   }
 
@@ -270,11 +295,17 @@ export class GatewayClient {
           clearTimeout(this.probeTimer);
           this.probeTimer = null;
         }
+        // 必须在 removeAllListeners 之前先 attach 一个 no-op 'error' 监听器,
+        // 这样 terminate() 触发的 "closed before the connection was
+        // established" 异步 throw 才有地方落地。否则它会逃逸到 process,
+        // 触发 Electron 的 uncaught exception dialog。
         try {
+          socket.on("error", () => { /* 吞掉 */ });
+          socket.removeAllListeners("error");
           socket.removeAllListeners();
           socket.terminate();
         } catch {
-          // ignore
+          /* 吞掉 */
         }
         if (this.probeSocket === socket) this.probeSocket = null;
         resolve(result);
@@ -290,7 +321,7 @@ export class GatewayClient {
             cleanup(true);
           }
         } catch {
-          // ignore non-JSON frames
+          // 忽略非 JSON 的帧
         }
       });
 
@@ -300,8 +331,8 @@ export class GatewayClient {
   }
 
   private isFatalCloseCode(code: number): boolean {
-    // 4xxx: protocol-level rejection. Retry won't help.
-    // Exception: 4000 is the gateway's tick-timeout close code (transient liveness failure).
+    // 4xxx: 协议层拒绝,重试没用。
+    // 例外:4000 是 gateway 心跳超时 close code(瞬时 liveness 失败)。
     if (code === TICK_TIMEOUT_CLOSE_CODE) return false;
     return code >= 4000 && code < 5000;
   }
@@ -494,16 +525,14 @@ export class GatewayClient {
       try {
         this.ws.ping();
       } catch {
-        // ignore
+        /* 吞掉 — ping 在 socket 已断开时可能同步抛 */
       }
       const now = Date.now();
       if (now - this.lastLivenessAt > this.tickTimeoutMs) {
         this.lastError = `心跳超时 (${Math.floor((now - this.lastLivenessAt) / 1000)}s 未响应)`;
-        try {
-          this.ws.terminate();
-        } catch {
-          // ignore
-        }
+        // 用 helper:在我们请求 terminate 时,这个 socket 可能已经不在
+        // OPEN 状态,ws 库会异步抛 "closed before established" 同样需要兜底。
+        this.safelyDestroySocket(this.ws);
       }
     }, this.tickIntervalMs);
   }

@@ -9,5 +9,6 @@
     "composite": true,
     "outDir": "./node_modules/.tmp/tsc-node"
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts"],
+  "exclude": ["vitest.config.ts"]
 }

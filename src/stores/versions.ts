@@ -9,6 +9,25 @@ export interface AvailableVersion {
 
 const STORAGE_KEY = "openclaw-manager:available-versions";
 
+/**
+ * Normalize an error coming out of `ipcRenderer.invoke` so the UI sees a
+ * human-readable message rather than the full Electron wrapper.
+ *
+ * When the main process throws an `Error`, `ipcRenderer.invoke` rejects
+ * with `Error: Error invoking remote method '<channel>': Error: <msg>`
+ * — that double "Error" + channel name is noise. This function strips
+ * the prefix and unwraps to `.message` when given an Error instance.
+ */
+function normalizeError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message.replace(
+      /^Error invoking remote method '[^']+':\s*Error:\s*/,
+      "",
+    );
+  }
+  return String(err);
+}
+
 export const useVersionsStore = defineStore("versions", () => {
   const installedVersions = ref<string[]>([]);
   const availableVersions = ref<AvailableVersion[]>([]);
@@ -45,7 +64,7 @@ export const useVersionsStore = defineStore("versions", () => {
         installed: installedVersions.value.includes(v.version),
       }));
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -61,7 +80,7 @@ export const useVersionsStore = defineStore("versions", () => {
       }));
       saveToCache();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     } finally {
       loading.value = false;
     }
@@ -75,7 +94,7 @@ export const useVersionsStore = defineStore("versions", () => {
       await fetchInstalled();
       await fetchAvailable();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     } finally {
       installing.value = null;
     }
@@ -91,7 +110,7 @@ export const useVersionsStore = defineStore("versions", () => {
       );
       saveToCache();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 

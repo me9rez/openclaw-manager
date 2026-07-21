@@ -1,6 +1,6 @@
 appId: com.openclaw.manager
 productName: OpenClaw Manager
-electronVersion: "43.1.0"
+electronVersion: "43.1.1"
 directories:
   output: release
 icon: assets/icon.ico

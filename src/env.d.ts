@@ -29,6 +29,32 @@ declare module "@vuesimple/vs-toast" {
   export default VsToast;
 }
 
+interface PortAvailability {
+  port: number;
+  host: string;
+  available: boolean;
+}
+
+interface CreateInstanceResult {
+  port: number;
+  requestedPort: number | null;
+  skipped: number[];
+}
+
+interface ConfigConsistencyIssue {
+  code: string;
+  message: string;
+}
+
+interface ConfigConsistencyResult {
+  name: string;
+  configPath: string;
+  storePort: number | null;
+  configPort: number | null;
+  consistent: boolean;
+  issues: ConfigConsistencyIssue[];
+}
+
 interface Window {
   api: {
     versions: {
@@ -40,11 +66,14 @@ interface Window {
     };
     instances: {
       list: () => Promise<InstanceConfig[]>;
-      create: (params: { name: string; version: string; port?: number }) => Promise<InstanceConfig>;
+      create: (params: { name: string; version: string; port?: number }) => Promise<CreateInstanceResult>;
       start: (name: string) => Promise<void>;
       stop: (name: string) => Promise<void>;
       restart: (name: string) => Promise<void>;
       remove: (name: string) => Promise<void>;
+      confirmRemove: (name: string, isRunning: boolean) => Promise<boolean>;
+      updatePort: (name: string, port: number) => Promise<{ port: number }>;
+      checkConfigConsistency: (name: string) => Promise<ConfigConsistencyResult>;
       forceReconnect: (name: string) => Promise<void>;
       stopReconnect: (name: string) => Promise<void>;
       debugDisconnectGateway: (name: string) => Promise<void>;
@@ -53,6 +82,7 @@ interface Window {
       openTerminal: (instanceName: string) => Promise<void>;
       openFolder: (instanceName: string) => Promise<void>;
       openInVSCode: (instanceName: string) => Promise<{ ok: boolean; error?: string }>;
+      checkPort: (port: number, host?: string) => Promise<PortAvailability>;
       onStatusChanged: (callback: (data: { name: string; status: InstanceStatus; message?: string }) => void) => () => void;
     debug: {
       spawn: (command: string, args?: string[]) => Promise<{ ok: boolean; output?: string; error?: string; stderr?: string; code?: number }>;

@@ -1,6 +1,6 @@
 {
   "name": "openclaw-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc -b",
+    "test:unit": "vitest run",
     "test:e2e": "playwright test --config playwright.config.ts",
     "test:e2e:headed": "playwright test --config playwright.config.ts --headed",
     "setup:node": "node scripts/fetch-node.cjs",
@@ -15,24 +16,25 @@
     "release:all": "npm run build:installer && uv run scripts/upload-ms/upload.py"
   },
   "dependencies": {
-    "@lucide/vue": "^1.24.0",
+    "@lucide/vue": "^1.25.0",
     "@vuesimple/vs-toast": "^3.1.6",
-    "pinia": "^3.0.4",
-    "vue": "^3.5.39",
-    "ws": "^8.21.0"
+    "pinia": "^4.0.2",
+    "vue": "^3.5.40",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-vue": "^6.0.7",
-    "electron": "^43.1.0",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "playwright": "^1.61.1",
     "typescript": "^6.0.3",
-    "vite": "^8.1.4",
+    "vite": "^8.1.5",
     "vite-plugin-electron": "^1.1.0",
     "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^4.1.10",
     "vue-tsc": "^3.3.7"
   }
 }

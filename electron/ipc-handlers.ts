@@ -8,7 +8,10 @@ import {
   installVersion,
   uninstallVersion,
   getInstalledVersions,
+  findInstancesUsingVersion,
 } from "./version-manager";
+import { getInstances as storeGetInstances, getInstance, getInstanceDir, getVersionDir, getSettings, updateSettings, updateInstance } from "./store";
+import { isPortAvailable } from "./port-utils";
 import {
   createInstance,
   startInstance,
@@ -21,8 +24,9 @@ import {
   syncStoreToMemory,
   onStatus,
   onLog,
+  updateInstancePort,
+  checkConfigConsistency,
 } from "./instance-manager";
-import { getInstances as storeGetInstances, getInstance, getInstanceDir, getVersionDir, getSettings, updateSettings } from "./store";
 import * as configManager from "./config-manager";
 
 export function registerIpcHandlers(): void {
@@ -40,7 +44,17 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("versions:remove", async (_event, version: string) => {
-    uninstallVersion(version);
+    // Refuse to uninstall a version that's still referenced by one or more
+    // instances — deleting the directory would break the instance's
+    // `node_modules/openclaw/openclaw.mjs` entry the next time it tries
+    // to spawn, and the manager has no way to roll that back.
+    const inUse = findInstancesUsingVersion(version, storeGetInstances);
+    if (inUse.length > 0) {
+      throw new Error(
+        `版本 ${version} 正被以下实例使用,无法删除: ${inUse.join(", ")}。请先删除或迁移这些实例。`,
+      );
+    }
+    await uninstallVersion(version);
   });
 
   // Instances
@@ -60,7 +74,17 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("instances:create", async (_event, params: { name: string; version: string; port?: number }) => {
-    await createInstance(params.name, params.version, params.port);
+    return await createInstance(params.name, params.version, params.port);
+  });
+
+  // Probe a single TCP port. Returns whether the port is free right now, plus
+  // metadata the UI can show ("checking…", "available", "in use").
+  ipcMain.handle("ports:check-availability", async (_event, port: number, host?: string) => {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid port: ${port}`);
+    }
+    const available = await isPortAvailable(port, host ?? "127.0.0.1");
+    return { port, host: host ?? "127.0.0.1", available };
   });
 
   ipcMain.handle("instances:start", async (_event, name: string) => {
@@ -83,6 +107,50 @@ export function registerIpcHandlers(): void {
     if (s.autoStartInstanceList.includes(name)) {
       updateSettings({ autoStartInstanceList: s.autoStartInstanceList.filter((n) => n !== name) });
     }
+  });
+
+  // Show a native confirm dialog before the renderer deletes an instance.
+  // The renderer can pass the instance's `running` flag so we can warn
+  // about stopping + deletion together, and `port` so the dialog can
+  // point the user at the right instance.
+  ipcMain.handle(
+    "instances:confirm-remove",
+    async (_event, name: string, isRunning: boolean) => {
+      const win = BrowserWindow.getFocusedWindow();
+      const detail = isRunning
+        ? `实例 "${name}" 仍在运行。删除会先停止网关进程,再删除状态目录和配置,且不可恢复。`
+        : `删除会移除实例的状态目录和配置,且不可恢复。`;
+      const opts: Electron.MessageBoxOptions = {
+        type: "warning",
+        buttons: ["取消", "删除"],
+        defaultId: 0,
+        cancelId: 0,
+        title: "删除实例",
+        message: `确定要删除实例 "${name}" 吗?`,
+        detail,
+        noLink: true,
+      };
+      const result = win
+        ? await dialog.showMessageBox(win, opts)
+        : await dialog.showMessageBox(opts);
+      return result.response === 1;
+    },
+  );
+
+  // Update the port of an existing instance. The instance must be stopped
+  // (or at least not running) — changing the port on a running gateway
+  // would desync the in-memory client, the store, and the child process.
+  ipcMain.handle(
+    "instances:update-port",
+    async (_event, name: string, port: number) => {
+      return updateInstancePort(name, port);
+    },
+  );
+
+  // Compare the port in manager-config.json with the port in
+  // <instanceDir>/openclaw.json and report any drift.
+  ipcMain.handle("instances:check-config-consistency", async (_event, name: string) => {
+    return checkConfigConsistency(name);
   });
 
   ipcMain.handle("instances:force-reconnect", async (_event, name: string) => {

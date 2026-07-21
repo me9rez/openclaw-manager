@@ -1,6 +1,19 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
+// Normalize errors coming out of `ipcRenderer.invoke` so the UI sees the
+// underlying message instead of Electron's "Error invoking remote method"
+// wrapper. See `src/stores/versions.ts` for the same helper.
+function normalizeError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message.replace(
+      /^Error invoking remote method '[^']+':\s*Error:\s*/,
+      "",
+    );
+  }
+  return String(err);
+}
+
 export const useConfigStore = defineStore("config", () => {
   const instances = ref<{ name: string; hasConfig: boolean }[]>([]);
   const blocksByInstance = ref<Record<string, BlockSummary[]>>({});
@@ -21,7 +34,7 @@ export const useConfigStore = defineStore("config", () => {
     try {
       instances.value = await window.api.config.listInstances();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -32,7 +45,7 @@ export const useConfigStore = defineStore("config", () => {
       blocksByInstance.value[name] = list;
       return list;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return [];
     } finally {
       loadingBlocks.value[name] = false;
@@ -44,7 +57,7 @@ export const useConfigStore = defineStore("config", () => {
       const content = await window.api.config.getBlock(name, blockKey);
       return content;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return null;
     }
   }
@@ -111,7 +124,7 @@ export const useConfigStore = defineStore("config", () => {
     try {
       templates.value = await window.api.config.listTemplates();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -121,7 +134,7 @@ export const useConfigStore = defineStore("config", () => {
       await loadTemplates();
       return t;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return null;
     }
   }
@@ -132,7 +145,7 @@ export const useConfigStore = defineStore("config", () => {
       await loadTemplates();
       return t ?? undefined;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return undefined;
     }
   }
@@ -142,7 +155,7 @@ export const useConfigStore = defineStore("config", () => {
       await window.api.config.deleteTemplate(id);
       await loadTemplates();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -157,7 +170,7 @@ export const useConfigStore = defineStore("config", () => {
       await window.api.app.copyText(JSON.stringify(t.content, null, 2));
       return true;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return false;
     }
   }
@@ -176,7 +189,7 @@ export const useConfigStore = defineStore("config", () => {
       await loadTemplates();
       return created;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return [];
     }
   }
@@ -190,7 +203,7 @@ export const useConfigStore = defineStore("config", () => {
         backups.value = await window.api.config.listBackups(instanceName);
       }
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -204,7 +217,7 @@ export const useConfigStore = defineStore("config", () => {
       }
       return r;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
       return { ok: false, error: String(err) };
     }
   }
@@ -214,7 +227,7 @@ export const useConfigStore = defineStore("config", () => {
       await window.api.config.deleteBackup(instanceName, backupId);
       await loadBackups(selectedInstanceForBackups.value);
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -222,7 +235,7 @@ export const useConfigStore = defineStore("config", () => {
     try {
       backupRetention.value = await window.api.config.getBackupRetention();
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 
@@ -231,7 +244,7 @@ export const useConfigStore = defineStore("config", () => {
       await window.api.config.setBackupRetention(count);
       backupRetention.value = count;
     } catch (err) {
-      error.value = String(err);
+      error.value = normalizeError(err);
     }
   }
 

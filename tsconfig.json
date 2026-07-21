@@ -20,7 +20,9 @@
     "src/**/*.d.ts",
     "src/**/*.vue",
     "electron/**/*.ts",
-    "e2e/**/*.ts"
+    "e2e/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
   ],
   "references": [
     { "path": "./tsconfig.node.json" }
