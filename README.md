@@ -1,6 +1,6 @@
 # OpenClaw Manager
 
-> **📥 [下载 OpenClaw Manager 0.3.0](https://modelscope.cn/models/me9rez/code-lab/resolve/master/code-lab/openclaw-manager/OpenClaw%20Manager-0.3.0.7z)**
+> **📥 [下载 OpenClaw Manager 0.3.1](https://modelscope.cn/models/me9rez/code-lab/resolve/master/code-lab/openclaw-manager/OpenClaw%20Manager-0.3.1.7z)**
 >
 > [ModelScope](https://modelscope.cn/models/me9rez/code-lab) · [GitHub](https://github.com/me9rez/openclaw-manager)
 
@@ -74,7 +74,7 @@ npm run build
 npm run build:installer
 ```
 
-顺序:下载 Node 便携版(`setup:node`) → Vite 构建(`build`) → electron-builder 打包,产出 `release/OpenClaw Manager-0.3.0.7z`。
+顺序:下载 Node 便携版(`setup:node`) → Vite 构建(`build`) → electron-builder 打包,产出 `release/OpenClaw Manager-0.3.1.7z`。
 
 ### 一行:打包 → 上传
 
