@@ -12,6 +12,7 @@ const currentTab = ref<Tab>("dashboard");
 const detailName = ref("");
 
 let cleanupTrayNav: (() => void) | null = null;
+let cleanupNotificationClick: (() => void) | null = null;
 
 function navigateToDetail(name: string) {
   detailName.value = name;
@@ -39,10 +40,17 @@ onMounted(() => {
   cleanupTrayNav = window.api.app.onTrayNavigateInstance((name) => {
     navigateToDetail(name);
   });
+  // 系统通知被点击 → 切到对应实例的详情 tab
+  cleanupNotificationClick = window.api.app.onNotificationClicked((data) => {
+    if (data.instanceName) {
+      navigateToDetail(data.instanceName);
+    }
+  });
 });
 
 onUnmounted(() => {
   cleanupTrayNav?.();
+  cleanupNotificationClick?.();
 });
 </script>
 

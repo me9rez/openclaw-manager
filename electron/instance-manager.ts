@@ -17,6 +17,7 @@ import { isPortAvailable, findAvailablePort } from "./port-utils";
 import { getOpenClawEntry, resolveNodeBinary, installVersion } from "./version-manager";
 import { GatewayClient } from "./gateway-client";
 import { loadOrCreateDeviceIdentity } from "./device-identity";
+import { getNotificationService } from "./notification-service";
 import { EventEmitter } from "events";
 
 type InstanceStatus =
@@ -147,6 +148,19 @@ async function startGatewayClient(inst: ManagedInstance): Promise<void> {
       },
       onDisconnected: () => {
         // close 事件已被 GatewayClient 内部用 onReconnecting 处理,这里不再翻 error
+      },
+      // 透传所有非内部 event 帧到通知服务。配置/路由/聚合都走那里。
+      // 多带 port + token,让通知点击能直接拼出 deeplink 跳到 webUI 对应会话。
+      onEvent: (event, payload) => {
+        try {
+          getNotificationService().handleEvent(inst.name, event, payload, {
+            port: inst.port,
+            token: inst.token,
+          });
+        } catch (err) {
+          // 通知失败不能让连接流断掉,吞掉
+          console.warn(`[instance-manager] notify event failed for ${inst.name}:`, err);
+        }
       },
     },
   );

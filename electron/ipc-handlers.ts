@@ -27,6 +27,14 @@ import {
   updateInstancePort,
   checkConfigConsistency,
 } from "./instance-manager";
+import {
+  getNotificationConfig,
+  updateNotificationConfig,
+} from "./store";
+import {
+  getNotificationService,
+  SUBSCRIBABLE_EVENTS,
+} from "./notification-service";
 import * as configManager from "./config-manager";
 
 export function registerIpcHandlers(): void {
@@ -354,6 +362,32 @@ export function registerIpcHandlers(): void {
     }
     updateSettings(patch);
   });
+
+  // Notifications
+  ipcMain.handle("notifications:get", () => {
+    return {
+      config: getNotificationConfig(),
+      events: SUBSCRIBABLE_EVENTS,
+    };
+  });
+
+  ipcMain.handle(
+    "notifications:set",
+    (_event, patch: {
+      enabled?: boolean;
+      events?: string[];
+      quietHours?: { enabled?: boolean; start?: string; end?: string };
+      aggregateWindowSec?: number;
+    }) => {
+      // store.updateNotificationConfig 内部用 normalize 把 patch 摊平,
+      // 顶层可选、嵌套字段也允许 partial。直接转发即可。
+      return updateNotificationConfig(patch as Parameters<typeof updateNotificationConfig>[0]);
+    },
+  );
+
+  ipcMain.handle("app:notify-test", (_event, instanceName: string) => {
+    return getNotificationService().sendTest(instanceName ?? "test");
+  });
 }
 
 export function setupEventForwarders(window: BrowserWindow): void {
@@ -371,6 +405,25 @@ export function setupEventForwarders(window: BrowserWindow): void {
     onLog((data) => {
       if (!window.isDestroyed()) {
         window.webContents.send("instance:log", data);
+      }
+    }),
+  );
+
+  // 通知点击 → 推给渲染层,App.vue 监听后切到对应实例 tab。
+  // 如果 notification-service 拼出了 deeplink(指向该实例 webUI 的某条会话),
+  // 同时用 shell.openExternal 唤起默认浏览器,这样用户能从通知一跳到
+  // 对应会话,完全不用手动切到 webUI 再找 session。
+  cleanup.push(
+    getNotificationService().onClicked(async (data) => {
+      if (data.deeplink) {
+        try {
+          await shell.openExternal(data.deeplink);
+        } catch (err) {
+          console.warn("[ipc-handlers] openExternal deeplink failed:", err);
+        }
+      }
+      if (!window.isDestroyed()) {
+        window.webContents.send("app:notification-clicked", data);
       }
     }),
   );

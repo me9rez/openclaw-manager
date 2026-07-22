@@ -85,11 +85,23 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.on("tray:navigate-instance", handler);
       return () => ipcRenderer.removeListener("tray:navigate-instance", handler);
     },
+    onNotificationClicked: (callback: (data: { instanceName: string; rule: string; event: string; deeplink: string | null }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { instanceName: string; rule: string; event: string; deeplink: string | null }) =>
+        callback(data);
+      ipcRenderer.on("app:notification-clicked", handler);
+      return () => ipcRenderer.removeListener("app:notification-clicked", handler);
+    },
     copyText: (text: string) => ipcRenderer.invoke("app:copyText", text),
+    notifyTest: (instanceName: string) => ipcRenderer.invoke("app:notify-test", instanceName),
   },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
     set: (patch: { autoStart?: boolean; autoStartInstances?: boolean; autoStartInstanceList?: string[] }) =>
       ipcRenderer.invoke("settings:set", patch),
+  },
+  notifications: {
+    get: () => ipcRenderer.invoke("notifications:get"),
+    set: (patch: { enabled?: boolean; events?: string[]; quietHours?: { enabled?: boolean; start?: string; end?: string }; aggregateWindowSec?: number }) =>
+      ipcRenderer.invoke("notifications:set", patch),
   },
 });

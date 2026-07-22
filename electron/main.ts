@@ -7,9 +7,17 @@ import { createTray, destroyTray, setTrayIconPath } from "./tray";
 import { stopAllInstances, startInstance } from "./instance-manager";
 import { getIsQuitting, setIsQuitting } from "./app-state";
 import { getSettings } from "./store";
+import { getNotificationService } from "./notification-service";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Windows 上 Notification 需要 AppUserModelId,否则通知会被归到 "Electron"
+// 这个通用名字下,且点不开。Linux 不需要,macOS 走 bundle id。
+// 必须在 app.whenReady() 之前设置,否则 Windows 不生效。
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.openclaw.manager");
+}
 
 let mainWindow: BrowserWindow | null = null;
 

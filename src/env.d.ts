@@ -114,11 +114,17 @@ interface Window {
     };
     app: {
       onTrayNavigateInstance: (callback: (name: string) => void) => () => void;
+      onNotificationClicked: (callback: (data: { instanceName: string; rule: string; event: string; deeplink: string | null }) => void) => () => void;
       copyText: (text: string) => Promise<void>;
+      notifyTest: (instanceName: string) => Promise<{ ok: boolean; supported: boolean; error?: string }>;
     };
     settings: {
       get: () => Promise<AppSettings>;
       set: (patch: { autoStart?: boolean; autoStartInstances?: boolean; autoStartInstanceList?: string[] }) => Promise<void>;
+    };
+    notifications: {
+      get: () => Promise<NotificationConfigResponse>;
+      set: (patch: { enabled?: boolean; events?: string[]; quietHours?: { enabled?: boolean; start?: string; end?: string }; aggregateWindowSec?: number }) => Promise<NotificationConfig>;
     };
   };
 }
@@ -127,6 +133,31 @@ interface AppSettings {
   autoStart: boolean;
   autoStartInstances: boolean;
   autoStartInstanceList: string[];
+}
+
+interface NotificationQuietHours {
+  enabled: boolean;
+  start: string;
+  end: string;
+}
+
+interface NotificationConfig {
+  enabled: boolean;
+  events: string[];
+  quietHours: NotificationQuietHours;
+  aggregateWindowSec: number;
+}
+
+interface SubscribableEvent {
+  name: string;
+  label: string;
+  defaultOn: boolean;
+  important: boolean;
+}
+
+interface NotificationConfigResponse {
+  config: NotificationConfig;
+  events: SubscribableEvent[];
 }
 
 type InstanceStatus = "installed" | "starting" | "running" | "stopping" | "stopped" | "reconnecting" | "error" | "crashed";

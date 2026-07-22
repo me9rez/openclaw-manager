@@ -24,6 +24,12 @@ export type GatewayClientCallbacks = {
   onError?: (err: Error) => void;
   onReconnecting?: (attempt: number, nextDelayMs: number, lastError?: string) => void;
   onMaxAttemptsReached?: (attempts: number) => void;
+  /**
+   * 透传所有非内部 event 帧。`connect.challenge` / `tick` / `payload.large`
+   * 仍由本类自己处理,不会调用此回调。`event` 是事件名(原样透传),
+   * `payload` 是该帧的 `payload` 字段,未做类型校验。
+   */
+  onEvent?: (event: string, payload: unknown) => void;
 };
 
 type PendingRequest = {
@@ -393,6 +399,9 @@ export class GatewayClient {
         );
         return;
       }
+      // 其它 event 帧透传给上层(通知服务 / 日志订阅者等)。
+      // 注意:此处不 catch 回调 throw,让 notification-service 自带兜底。
+      this.callbacks.onEvent?.(evt.event, evt.payload);
       return;
     }
 
